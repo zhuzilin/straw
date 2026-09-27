@@ -1,0 +1,61 @@
+[build-system]
+requires = ["maturin>=1.12,<2"]
+build-backend = "maturin"
+
+[project]
+name = "straw-queue"
+version = "0.1.0"
+description = "Rust durable queues for AI tensors and large immutable records"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["numpy>=1.24", "torch>=2.3"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: System :: Distributed Computing",
+]
+
+[project.scripts]
+straw-benchmark = "straw.benchmark:main"
+
+[project.urls]
+Repository = "https://github.com/zhuzilin/straw"
+Issues = "https://github.com/zhuzilin/straw/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+build = ["maturin>=1.12,<2", "build>=1.2", "twine>=5"]
+dev = ["black>=24.8", "isort>=5.13"]
+
+[tool.maturin]
+python-source = "src"
+module-name = "straw._native"
+features = ["python"]
+locked = true
+include = [
+    { path = "docs/**/*.md", format = "sdist" },
+    { path = "examples/*.py", format = "sdist" },
+    { path = "tests/**", format = "sdist" },
+    { path = "verification/*.py", format = "sdist" },
+    { path = "tools/*.py", format = "sdist" },
+]
+exclude = ["**/__pycache__/**", "reports/**", "target/**", ".pytest_cache/**"]
+
+[tool.maturin.sbom]
+# Generated Rust SBOM references include absolute paths to local source crates.
+rust = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 119
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 119

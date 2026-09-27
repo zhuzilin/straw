@@ -1,0 +1,149 @@
+name: wheels
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-tag: ['310', '311', '312', '313']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          # The action adds --manylinux; do not also pass --compatibility in args.
+          manylinux: '2_28'
+          args: --release --locked --strip --out dist --interpreter /opt/python/cp${{ matrix.python-tag }}-cp${{ matrix.python-tag }}/bin/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-cp${{ matrix.python-tag }}-linux-x86_64
+          path: dist/*.whl
+          if-no-files-found: error
+  smoke:
+    name: Verify wheel / Python ${{ matrix.python }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.10'
+            tag: '310'
+          - python: '3.11'
+            tag: '311'
+          - python: '3.12'
+            tag: '312'
+          - python: '3.13'
+            tag: '313'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-cp${{ matrix.tag }}-linux-x86_64
+          path: dist
+      - run: python -m pip install 'numpy>=1.24' 'pytest>=8' 'twine>=5'
+      - run: python -m pip install 'torch>=2.3' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m twine check dist/*
+      - run: python tools/check_wheel.py dist/*.whl --tests --report wheel-check.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wheel-check-cp${{ matrix.tag }}
+          path: wheel-check.json
+  sdist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'build>=1.2' 'twine>=5' 'numpy>=1.24' 'pytest>=8'
+      - run: python -m pip install 'torch>=2.3' --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m build --sdist
+      - run: python -m twine check dist/*
+      - run: python -m pip wheel --no-deps dist/*.tar.gz --wheel-dir rebuilt
+      - run: python -m twine check rebuilt/*
+      - run: python tools/check_wheel.py rebuilt/*.whl --tests --report wheel-check.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-distribution
+          path: dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-rebuild-check
+          path: wheel-check.json
+  publish:
+    name: Publish to PyPI
+    needs: [smoke, sdist]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/straw-queue
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download tested wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-cp*-linux-x86_64
+          merge-multiple: true
+          path: dist
+      - name: Download tested source distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: source-distribution
+          path: dist
+      - name: Check release contents and tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import email
+          import os
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+          wheels = sorted(Path("dist").glob("*.whl"))
+          sdists = sorted(Path("dist").glob("*.tar.gz"))
+          assert len(wheels) == 4 and len(sdists) == 1, "Expected four wheels and one sdist"
+          assert {p.name.split("-")[2] for p in wheels} == {"cp310", "cp311", "cp312", "cp313"}
+          for path in wheels + sdists:
+              if path.suffix == ".whl":
+                  with zipfile.ZipFile(path) as archive:
+                      data = archive.read(next(p for p in archive.namelist() if p.endswith(".dist-info/METADATA")))
+              else:
+                  with tarfile.open(path) as archive:
+                      data = archive.extractfile(f"straw_queue-{version}/PKG-INFO").read()
+              metadata = email.message_from_bytes(data)
+              assert metadata["Name"] == "straw-queue", path
+              assert metadata["Version"] == version, f"{path}: version does not match {version}"
+              print(f"Verified {path.name}")
+          PY
+      - name: Publish distributions
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true

@@ -1,0 +1,52 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv*/
+venv/
+.env
+.env.local
+
+# Rust and Python build artifacts; Cargo.lock remains versioned.
+/target/
+/build/
+/dist/
+/rebuilt/
+*.egg-info/
+*.so
+*.pyd
+*.dylib
+*.dll
+*.whl
+*.tar.gz
+
+# Coverage, profiling and installation reports
+.coverage
+.coverage.*
+/htmlcov/
+/coverage.xml
+*.profraw
+*.profdata
+/wheel-check.json
+
+# Local runs and coordination. /reports may be a symlink.
+/reports
+/benchmark-results/
+/runtime/
+/checkpoints/
+/outputs/
+/tmp/
+/STRAW_COORDINATION.md
+*.pack
+*.log
+*.pid
+
+# Editor and OS temporary files
+.DS_Store
+*.swp
+*.swo
+*~
