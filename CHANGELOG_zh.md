@@ -2,6 +2,15 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.1
+
+- 持久化任务调度：按 `TaskSpec.priority` 从高到低、`scheduling_key` 从低到高、再按 FIFO 顺序领取任务。两个字段默认均为 0，接受有符号 64 位整数。Rust pending 索引无需读取载荷即可选择任务，WAL 恢复时重建调度顺序。
+- 新增 `Coordinator.yield_tasks()`：原子保存一批 continuation 输入及可选调度字段，结束这些任务的 lease 并归还到 pending 队列，不消耗失败重试次数。归还的任务进入相同调度键的 FIFO 队尾；相同请求可幂等重试，任一 lease 失效则拒绝整批操作。
+- 新增 `Coordinator.pending_tasks()`：按领取顺序返回 pending 任务的 spec，支持按任务 ID 前缀及最低优先级过滤。应用负责协调暂停后的快照，并持有所引用的输入。
+- 补充优先级/FIFO 恢复、失效 lease、非法调度键，以及 WAL 崩溃窗口下批量操作全有或全无恢复的回归测试。
+
+已有调用方可以不指定新增调度字段。Packed record 与 WAL 的 framing 不变；新增 API 和调度行为需要 0.1.1。仅有 pending 任务快照尚不构成应用联合 checkpoint，也不提供任意 checkpoint 回退。
+
 ## 0.1.0
 
 straw 首次发布：面向 AI 应用、基于文件系统的持久化队列与共享张量存储，以 `straw-queue` 包分发，采用 MIT 许可证。

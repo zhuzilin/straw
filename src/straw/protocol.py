@@ -98,6 +98,8 @@ class TaskSpec:
     estimated_bytes: int = 0
     estimated_tokens: int = 0
     control: bool = False
+    priority: int = 0
+    scheduling_key: int = 0
 
     @classmethod
     def from_dict(cls, value):

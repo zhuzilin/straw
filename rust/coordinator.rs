@@ -4,6 +4,7 @@ use crate::store::{Config, Reader, Record, Store, mkdir, sync, sync_dir};
 use crate::{Error, Fault, Result, array, bytes, digest, fail, field, number, uid};
 use serde_json::{Value, json};
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
     fs::OpenOptions,
     io::Write,
@@ -17,9 +18,9 @@ pub struct Coordinator {
     pub limits: Value,
     pub epoch: String,
     pub recovery_seconds: f64,
-    order: Vec<String>,
-    positions: HashMap<String, usize>,
-    pending: BTreeMap<usize, String>,
+    pending: BTreeMap<(Reverse<i64>, i64, usize), String>,
+    pending_keys: HashMap<String, (Reverse<i64>, i64, usize)>,
+    next_pending_order: usize,
     leased: HashSet<String>,
     usage_cache: Option<Value>,
     deadlines: HashMap<String, f64>,
@@ -59,6 +60,17 @@ fn bounded(value: &Value, limit: u64) -> Result<()> {
             "ResourceLimitExceeded",
             "Control metadata limit exceeded; use a manifest",
         );
+    }
+    Ok(())
+}
+fn validate_scheduling(value: &Value) -> Result<()> {
+    for key in ["priority", "scheduling_key"] {
+        if value.get(key).is_some_and(|v| v.as_i64().is_none()) {
+            return fail(
+                "ValueError",
+                format!("{key} must be a signed 64-bit integer"),
+            );
+        }
     }
     Ok(())
 }
@@ -119,9 +131,9 @@ impl Coordinator {
             limits,
             epoch: String::new(),
             recovery_seconds: 0.,
-            order: vec![],
-            positions: HashMap::new(),
             pending: BTreeMap::new(),
+            pending_keys: HashMap::new(),
+            next_pending_order: 0,
             leased: HashSet::new(),
             usage_cache: None,
             deadlines: HashMap::new(),
@@ -243,8 +255,8 @@ impl Coordinator {
             _ => vec![],
         };
         for id in &affected {
-            if let Some(position) = self.positions.get(id) {
-                self.pending.remove(position);
+            if let Some(key) = self.pending_keys.remove(id) {
+                self.pending.remove(&key);
             }
             self.leased.remove(id);
             if let Some(usage) = self.usage_cache.as_mut() {
@@ -261,9 +273,9 @@ impl Coordinator {
             "Submitted" => {
                 for spec in array(e, "tasks")? {
                     let id = field(spec, "task_id")?;
-                    self.positions.insert(id.into(), self.order.len());
-                    self.order.push(id.into());
                     self.state["tasks"][id] = json!({"spec":spec,"state":"pending","generation":0,"failures":0,"lease":null});
+                    self.state["tasks"][id]["pending_order"] = json!(self.next_pending_order);
+                    self.next_pending_order += 1;
                 }
                 if let Some(id) = e["producer_id"].as_str() {
                     self.state["producers"][id] = e["producer_state"].clone();
@@ -336,9 +348,16 @@ impl Coordinator {
                 }
                 let t = &mut self.state["tasks"][id];
                 t["spec"]["input_ref"] = e["input_ref"].clone();
+                for key in ["priority", "scheduling_key", "metadata"] {
+                    if let Some(value) = e.get(key) {
+                        t["spec"][key] = value.clone();
+                    }
+                }
                 if e["type"] == "Yielded" {
                     t["state"] = json!("pending");
                     t["lease"] = Value::Null;
+                    t["pending_order"] = json!(self.next_pending_order);
+                    self.next_pending_order += 1;
                     self.deadlines.remove(id);
                 }
             }
@@ -411,7 +430,13 @@ impl Coordinator {
         for id in &affected {
             let task = &self.state["tasks"][id];
             if task["state"] == "pending" {
-                self.pending.insert(self.positions[id], id.clone());
+                let key = (
+                    Reverse(task["spec"]["priority"].as_i64().unwrap_or(0)),
+                    task["spec"]["scheduling_key"].as_i64().unwrap_or(0),
+                    number(task, "pending_order") as usize,
+                );
+                self.pending.insert(key, id.clone());
+                self.pending_keys.insert(id.clone(), key);
             }
             if task["state"] == "leased" {
                 self.leased.insert(id.clone());
@@ -745,6 +770,7 @@ impl Coordinator {
                 let mut ids = vec![];
                 let mut unique = HashSet::new();
                 for t in tasks {
+                    validate_scheduling(t)?;
                     let id = field(t, "task_id")?;
                     if !unique.insert(id) || !self.state["tasks"][id].is_null() {
                         return fail("IdempotencyConflict", "Task IDs must be new within queue");
@@ -821,7 +847,7 @@ impl Coordinator {
                     let mut selected = ids
                         .iter()
                         .filter_map(|v| v.as_str())
-                        .filter_map(|id| self.positions.get(id))
+                        .filter_map(|id| self.pending_keys.get(id))
                         .filter_map(|p| self.pending.get_key_value(p))
                         .collect::<Vec<_>>();
                     selected.sort_by_key(|(position, _)| *position);
@@ -903,11 +929,19 @@ impl Coordinator {
                 }
                 Ok(json!({"status":"acquired","assignments":assignments}))
             }
-            "save_task_progress_many" => {
+            "save_task_progress_many" | "yield_tasks" => {
+                let yielding = method == "yield_tasks";
                 let updates = array(args, "updates")?;
                 bounded(&json!(updates), metadata)?;
-                let request =
-                    self.request("progress_many", field(args, "request_id")?, &json!(updates))?;
+                let request = self.request(
+                    if yielding {
+                        "yield_many"
+                    } else {
+                        "progress_many"
+                    },
+                    field(args, "request_id")?,
+                    &json!(updates),
+                )?;
                 if !request.2.is_null() {
                     return Ok(request.2);
                 }
@@ -918,6 +952,7 @@ impl Coordinator {
                 let mut unique = HashSet::new();
                 let mut reader = Reader::new(self.store.config.clone());
                 for update in updates {
+                    validate_scheduling(update)?;
                     let lease = &update["lease"];
                     let id = field(lease, "task_id")?;
                     if !unique.insert(id) {
@@ -932,16 +967,23 @@ impl Coordinator {
                         self.storage_failed = true;
                     }
                     validated?;
-                    events.push(
-                        json!({"type":"TaskProgress","task_id":id,"input_ref":update["input_ref"]}),
-                    );
+                    let mut event = json!({"type":if yielding {"Yielded"} else {"TaskProgress"},"task_id":id,"input_ref":update["input_ref"]});
+                    if yielding {
+                        for key in ["priority", "scheduling_key", "metadata"] {
+                            if let Some(value) = update.get(key) {
+                                event[key] = value.clone();
+                            }
+                        }
+                    }
+                    events.push(event);
                 }
                 let last = events.last_mut().unwrap();
                 last["request_key"] = json!(request.0);
                 last["request_digest"] = json!(request.1);
-                last["response"] = json!("saved");
+                let response = json!(if yielding { "pending" } else { "saved" });
+                last["response"] = response.clone();
                 self.commit(json!(events), fault)?;
-                Ok(json!("saved"))
+                Ok(response)
             }
             "release_tasks" => {
                 let leases = array(args, "leases")?;
@@ -1138,6 +1180,26 @@ impl Coordinator {
             }
             "lookup_submission" => {
                 Ok(self.state["submissions"][field(args, "submission_id")?]["receipt"].clone())
+            }
+            "pending_tasks" => {
+                let prefix = args["task_prefix"].as_str();
+                let minimum = args["min_priority"].as_i64();
+                Ok(json!(
+                    self.pending
+                        .values()
+                        .filter_map(|id| {
+                            let spec = &self.state["tasks"][id]["spec"];
+                            if prefix.is_some_and(|p| !id.starts_with(p))
+                                || minimum
+                                    .is_some_and(|p| spec["priority"].as_i64().unwrap_or(0) < p)
+                            {
+                                None
+                            } else {
+                                Some(spec.clone())
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                ))
             }
             "task_status" => Ok(self.state["tasks"][field(args, "task_id")?].clone()),
             "producer_state" => Ok(self.state["producers"][field(args, "producer_id")?].clone()),

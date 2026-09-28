@@ -2,6 +2,28 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.1
+
+- Persistent task scheduling with `TaskSpec.priority` (higher first),
+  `scheduling_key` (lower first), then FIFO. Both keys default to zero and accept
+  signed 64-bit integers. The Rust pending index selects tasks without reading
+  their payloads and reconstructs scheduling order during WAL recovery.
+- `Coordinator.yield_tasks()` atomically saves a batch of continuation inputs
+  and optional scheduling fields, ends their leases, and returns the tasks to
+  the pending queue without spending failure retries. Returned tasks join the
+  tail of their scheduling key's FIFO order. Identical requests are idempotent;
+  a stale lease rejects the entire batch.
+- `Coordinator.pending_tasks()` exposes pending task specifications in
+  acquisition order, with optional task-prefix and minimum-priority filters.
+  Applications coordinate paused snapshots and retain the referenced inputs.
+- Regression coverage for priority/FIFO recovery, stale leases, invalid
+  scheduling keys, and all-or-nothing batch recovery across WAL crash windows.
+
+Existing callers may omit the new scheduling fields. Packed-record and WAL
+framing are unchanged; the new APIs and scheduling behavior require 0.1.1.
+Pending-task snapshots alone do not provide a joint application checkpoint or
+arbitrary checkpoint rollback.
+
 ## 0.1.0
 
 Initial release of straw, a filesystem-based durable queue and shared tensor

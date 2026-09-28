@@ -53,8 +53,12 @@ def root(tmp_path):
 
 @pytest.fixture
 def queue(root, request):
-    standalone = request.node.originalname == "test_crash_windows_do_not_accept_physical_data"
-    store = SharedFilesystemStore(root, "run", segment_target_bytes=0 if standalone else 1024**3)
+    standalone = (
+        request.node.originalname == "test_crash_windows_do_not_accept_physical_data"
+    )
+    store = SharedFilesystemStore(
+        root, "run", segment_target_bytes=0 if standalone else 1024**3
+    )
     coordinator = Coordinator(store, exclusive_owner="test owns the only coordinator")
     yield coordinator
     coordinator.close()
@@ -83,29 +87,41 @@ def complete(queue, lease, *, submission_id="completion", **kwargs):
         submission_id=f"physical:{lease.attempt_id}:{submission_id}",
         **kwargs,
     )
-    return queue.complete_task(lease, submission_id=submission_id, result_ref=ref, result_digest=ref.digest)
+    return queue.complete_task(
+        lease, submission_id=submission_id, result_ref=ref, result_digest=ref.digest
+    )
 
 
 def recover(queue, **kwargs):
     queue.close()
-    return Coordinator(queue.store, exclusive_owner="previous owner closed", recover=True, **kwargs)
+    return Coordinator(
+        queue.store, exclusive_owner="previous owner closed", recover=True, **kwargs
+    )
 
 
 def test_store_order_empty_payload_reference_relocation(root):
     store = SharedFilesystemStore(root / "source", "run")
-    ref = store.publish([Record("a", b""), Record("b", b"\x00\xff", tokens=2)], submission_id="a")
+    ref = store.publish(
+        [Record("a", b""), Record("b", b"\x00\xff", tokens=2)], submission_id="a"
+    )
     assert ref.records == 2 and ref.tokens == 2 and ref.payload_bytes == 2
     assert [record.payload for record in store.read(ref)] == [b"", b"\x00\xff"]
     assert len(encode(dataclasses.asdict(ref))) < 1000
     shutil.copytree(root / "source", root / "other_mount")
-    assert [record.record_id for record in SharedFilesystemStore(root / "other_mount", "run").read(ref)] == ["a", "b"]
+    assert [
+        record.record_id
+        for record in SharedFilesystemStore(root / "other_mount", "run").read(ref)
+    ] == ["a", "b"]
 
 
 def test_logical_digest_independent_of_physical_layout(root):
     store = SharedFilesystemStore(root, "run")
     records = [Record("a", b"first"), Record("b", b"second")]
     first = store.publish(records, submission_id="together")
-    refs = [store.write_records([record], submission_id=record.record_id)[0] for record in records]
+    refs = [
+        store.write_records([record], submission_id=record.record_id)[0]
+        for record in records
+    ]
     second = store.record_set(refs, submission_id="separate")
     assert first.digest == second.digest
     assert first.manifest != second.manifest
@@ -133,7 +149,9 @@ def test_store_many_tasks_one_segment_accept_only_one(queue):
     assert queue.task_status("b")["state"] == "leased"
     assert len(queue.read_commits().commits) == 1
     with pytest.raises(InvalidReference, match="belong"):
-        queue.complete_task(b, submission_id="wrong", result_ref=ref, result_digest=ref.digest)
+        queue.complete_task(
+            b, submission_id="wrong", result_ref=ref, result_digest=ref.digest
+        )
 
 
 @pytest.mark.parametrize(
@@ -152,7 +170,9 @@ def test_invalid_references(root, change, error):
     store = SharedFilesystemStore(root, "run")
     (ref,) = store.write_records([Record("r", b"value")], submission_id="s")
     with pytest.raises(error):
-        store.read_record(dataclasses.replace(ref, segment=dataclasses.replace(ref.segment, **change)))
+        store.read_record(
+            dataclasses.replace(ref, segment=dataclasses.replace(ref.segment, **change))
+        )
 
 
 def test_reference_cannot_escape_via_symlink(root, tmp_path):
@@ -189,11 +209,15 @@ def test_segment_truncation(root, cut):
 
 
 def test_record_and_memory_limits(root):
-    store = SharedFilesystemStore(root, "run", max_record_bytes=1024, max_buffer_bytes=2048)
+    store = SharedFilesystemStore(
+        root, "run", max_record_bytes=1024, max_buffer_bytes=2048
+    )
     with pytest.raises(ResourceLimitExceeded):
         store.publish([Record("r", b"x" * 1025)], submission_id="large")
     with pytest.raises(ResourceLimitExceeded):
-        store.write_records([Record(str(i), b"x" * 1000) for i in range(3)], submission_id="batch")
+        store.write_records(
+            [Record(str(i), b"x" * 1000) for i in range(3)], submission_id="batch"
+        )
     with pytest.raises(UnsupportedSchema):
         store.publish([Record("r", b"", codec="pickle")], submission_id="pickle")
     with pytest.raises(ResourceLimitExceeded):
@@ -248,7 +272,9 @@ def test_ambiguous_rename_rechecks_same_publication(root):
     store = SharedFilesystemStore(root, "run", backend=backend, segment_target_bytes=0)
     ref = store.publish([Record("r", b"payload")], submission_id="s")
     assert next(store.read(ref)).payload == b"payload"
-    assert len(list(root.rglob("*.sealed"))) == 1  # data and manifest packed together; no retry duplicate
+    assert (
+        len(list(root.rglob("*.sealed"))) == 1
+    )  # data and manifest packed together; no retry duplicate
 
 
 def test_visibility_retry_is_bounded(root):
@@ -298,7 +324,12 @@ def test_submit_idempotency_and_terminal_states(queue):
         queue.submit_tasks("different", [TaskSpec("a")])
     queue.cancel_task("a", request_id="cancel")
     lease = queue.acquire("w").assignments[0].lease
-    assert queue.fail_task(lease, request_id="fail", failure={"reason": "invalid"}, retryable=False) == "failed"
+    assert (
+        queue.fail_task(
+            lease, request_id="fail", failure={"reason": "invalid"}, retryable=False
+        )
+        == "failed"
+    )
     assert queue.acquire("w").status == "empty"
     queue.seal_input("seal")
     assert queue.acquire("w").status == "end_of_input"
@@ -317,8 +348,12 @@ def test_complete_idempotency_survives_epoch_and_physical_relayout(queue):
     queue.submit_tasks("r", [TaskSpec("a")])
     lease = queue.acquire("w").assignments[0].lease
     ref = result(queue, lease, records=3)
-    receipt = queue.complete_task(lease, submission_id="c", result_ref=ref, result_digest=ref.digest)
-    other_layout = queue.store.publish(list(queue.store.read(ref)), submission_id="new-files")
+    receipt = queue.complete_task(
+        lease, submission_id="c", result_ref=ref, result_digest=ref.digest
+    )
+    other_layout = queue.store.publish(
+        list(queue.store.read(ref)), submission_id="new-files"
+    )
     restored = recover(queue)
     try:
         assert (
@@ -332,7 +367,9 @@ def test_complete_idempotency_survives_epoch_and_physical_relayout(queue):
         )
         assert len(restored.read_commits().commits) == 1
         with pytest.raises(IdempotencyConflict):
-            restored.complete_task(lease, submission_id="c", result_ref=ref, result_digest="changed")
+            restored.complete_task(
+                lease, submission_id="c", result_ref=ref, result_digest="changed"
+            )
     finally:
         restored.close()
 
@@ -352,7 +389,10 @@ def test_expiry_reassignment_rejects_late_worker(root):
         with pytest.raises(LeaseExpired):
             complete(queue, old)
         current = queue.acquire("B").assignments[0].lease
-        assert current.generation == old.generation + 1 and current.attempt_id != old.attempt_id
+        assert (
+            current.generation == old.generation + 1
+            and current.attempt_id != old.attempt_id
+        )
         assert queue.heartbeat([old, current]) == ["StaleAttempt", "extended"]
         receipt = complete(queue, current, submission_id="B", payload=b"B")
         with pytest.raises(StaleAttempt):
@@ -371,7 +411,9 @@ def test_recovery_revokes_old_leases_and_enforces_attempt_limit(queue):
         assert restored.task_status("b")["state"] == "pending"
         for assignment in assignments:
             with pytest.raises(StaleAttempt):
-                complete(restored, assignment.lease, submission_id=assignment.task.task_id)
+                complete(
+                    restored, assignment.lease, submission_id=assignment.task.task_id
+                )
     finally:
         restored.close()
 
@@ -387,17 +429,23 @@ def test_reply_loss_after_complete_returns_original_receipt(queue):
 
     queue.store.backend.fault = fault
     with pytest.raises(ConnectionError):
-        queue.complete_task(lease, submission_id="c", result_ref=ref, result_digest=ref.digest)
+        queue.complete_task(
+            lease, submission_id="c", result_ref=ref, result_digest=ref.digest
+        )
     queue.store.backend.fault = lambda _: None
     restored = recover(queue)
     try:
-        receipt = restored.complete_task(lease, submission_id="c", result_ref=ref, result_digest=ref.digest)
+        receipt = restored.complete_task(
+            lease, submission_id="c", result_ref=ref, result_digest=ref.digest
+        )
         assert restored.read_commits().commits == (receipt,)
     finally:
         restored.close()
 
 
-@pytest.mark.parametrize("phase,committed", [("after_journal_part", False), ("after_journal_sync", True)])
+@pytest.mark.parametrize(
+    "phase,committed", [("after_journal_part", False), ("after_journal_sync", True)]
+)
 def test_torn_and_unacknowledged_journal_transactions(queue, phase, committed):
     queue.submit_tasks("first", [TaskSpec("a")])
 
@@ -449,7 +497,9 @@ def test_sync_failure_is_not_acknowledged(queue):
 
 def test_backpressure_does_not_block_complete_and_empty_is_explicit(root):
     limits = Limits(inflight_tasks=1, accepted_records=1, accepted_bytes=10)
-    queue = Coordinator(SharedFilesystemStore(root, "run"), exclusive_owner="test", limits=limits)
+    queue = Coordinator(
+        SharedFilesystemStore(root, "run"), exclusive_owner="test", limits=limits
+    )
     try:
         queue.submit_tasks("r", [TaskSpec("a"), TaskSpec("b", allow_empty=True)])
         lease = queue.acquire("w").assignments[0].lease
@@ -457,7 +507,9 @@ def test_backpressure_does_not_block_complete_and_empty_is_explicit(root):
         complete(queue, lease, payload=b"x" * 20)  # bounded actual overshoot may finish
         assert queue.acquire("w").status == "backpressured"
         token = queue.open_consumer("training", exclusive_owner="test")
-        state = queue.store.publish([Record("state", b"{}", "json.v1")], submission_id="state")
+        state = queue.store.publish(
+            [Record("state", b"{}", "json.v1")], submission_id="state"
+        )
         queue.save_consumer_state(
             "training",
             token=token,
@@ -470,7 +522,9 @@ def test_backpressure_does_not_block_complete_and_empty_is_explicit(root):
         receipt = complete(queue, lease, submission_id="empty", records=0)
         assert receipt.result_ref.records == 0
         assert not list(queue.store.read(receipt.result_ref))
-        assert len(queue.read_commits().commits) == 2  # processing did not delete raw history
+        assert (
+            len(queue.read_commits().commits) == 2
+        )  # processing did not delete raw history
     finally:
         queue.close()
 
@@ -484,7 +538,9 @@ def test_consumer_fetch_processing_batch_and_checkpoint_are_distinct(queue):
     token = queue.open_consumer("training", exclusive_owner="test")
     with pytest.raises(UnsafeRecovery):
         queue.open_consumer("training", exclusive_owner="second")
-    state = queue.store.publish([Record("state", b'{"pending":[0]}', "json.v1")], submission_id="state")
+    state = queue.store.publish(
+        [Record("state", b'{"pending":[0]}', "json.v1")], submission_id="state"
+    )
     queue.save_consumer_state(
         "training",
         token=token,
@@ -498,10 +554,14 @@ def test_consumer_fetch_processing_batch_and_checkpoint_are_distinct(queue):
         [Record("plan", b'{"transform":"v1","order":[0]}', "json.v1")],
         submission_id="plan",
     )
-    queue.plan_batch("training", token=token, batch_id="batch", input_positions=[0], plan_ref=plan)
+    queue.plan_batch(
+        "training", token=token, batch_id="batch", input_positions=[0], plan_ref=plan
+    )
     restored = recover(queue)
     try:
-        token = restored.open_consumer("training", exclusive_owner="test after recovery")
+        token = restored.open_consumer(
+            "training", exclusive_owner="test after recovery"
+        )
         assert not restored.get_batch("batch")["ready"]
         restored.plan_batch(
             "training",
@@ -518,7 +578,9 @@ def test_consumer_fetch_processing_batch_and_checkpoint_are_distinct(queue):
                 input_positions=[],
                 plan_ref=plan,
             )
-        output = restored.store.publish([Record("batch", b"converted")], submission_id="converted")
+        output = restored.store.publish(
+            [Record("batch", b"converted")], submission_id="converted"
+        )
         restored.batch_ready(
             "training",
             token=token,
@@ -531,7 +593,9 @@ def test_consumer_fetch_processing_batch_and_checkpoint_are_distinct(queue):
         assert not restored.checkpoints
         # Mock optimizer advanced, but the previous model checkpoint is still
         # authoritative until the final manifest below is durably published.
-        model = restored.store.publish([Record("model", b'{"step":1}', "json.v1")], submission_id="model")
+        model = restored.store.publish(
+            [Record("model", b'{"step":1}', "json.v1")], submission_id="model"
+        )
         value = {
             "version": 1,
             "checkpoint_id": "step-1",
@@ -562,10 +626,17 @@ def test_missing_accepted_data_fails_and_pauses_new_work(queue):
     ref = result(queue, lease)
     queue.store.backend.path(ref.manifest.segment.path).unlink()
     with pytest.raises(StorageUnavailable):
-        queue.complete_task(lease, submission_id="c", result_ref=ref, result_digest=ref.digest)
+        queue.complete_task(
+            lease, submission_id="c", result_ref=ref, result_digest=ref.digest
+        )
     with pytest.raises(StorageUnavailable):
         queue.acquire("w")
-    assert queue.fail_task(lease, request_id="failure", failure={"category": "StorageUnavailable"}) == "pending"
+    assert (
+        queue.fail_task(
+            lease, request_id="failure", failure={"category": "StorageUnavailable"}
+        )
+        == "pending"
+    )
 
 
 def test_optimizer_progress_after_checkpoint_is_replayed_from_matching_consumer_state(
@@ -586,7 +657,9 @@ def test_optimizer_progress_after_checkpoint_is_replayed_from_matching_consumer_
     token = queue.open_consumer("training", exclusive_owner="mock trainer")
 
     def blob(owner, name, value):
-        return owner.store.publish([Record(name, encode(value), "json.v1")], submission_id=name)
+        return owner.store.publish(
+            [Record(name, encode(value), "json.v1")], submission_id=name
+        )
 
     state = blob(queue, "state-step-1", {"cursor": 1, "pending": []})
     model = blob(queue, "model-step-1", {"weight": -0.1, "optimizer_step": 1})
@@ -623,7 +696,9 @@ def test_optimizer_progress_after_checkpoint_is_replayed_from_matching_consumer_
         model_ref = RecordSetRef.from_dict(root["training_dependencies"][0])
         parameters = decode(next(restored.store.read(model_ref)).payload)
         assert parameters == {"weight": -0.1, "optimizer_step": 1}
-        token = restored.open_consumer("training", exclusive_owner="recovered mock trainer")
+        token = restored.open_consumer(
+            "training", exclusive_owner="recovered mock trainer"
+        )
         restored.save_consumer_state(
             "training",
             token=token,
@@ -633,11 +708,18 @@ def test_optimizer_progress_after_checkpoint_is_replayed_from_matching_consumer_
             processed_cursor=cursor,
         )
         replay = restored.read_commits(cursor, 1).commits[0]
-        gradient = decode(next(restored.store.read(replay.result_ref)).payload)["gradient"]
+        gradient = decode(next(restored.store.read(replay.result_ref)).payload)[
+            "gradient"
+        ]
         parameters["weight"] -= 0.1 * gradient
         parameters["optimizer_step"] += 1
-        assert parameters["weight"] == uncheckpointed_weight and parameters["optimizer_step"] == 2
-        assert [receipt.commit_id for receipt in restored.read_commits().commits] == accepted_ids
+        assert (
+            parameters["weight"] == uncheckpointed_weight
+            and parameters["optimizer_step"] == 2
+        )
+        assert [
+            receipt.commit_id for receipt in restored.read_commits().commits
+        ] == accepted_ids
     finally:
         restored.close()
 
@@ -693,8 +775,14 @@ def test_partial_yield_survives_recovery_and_does_not_spend_failure_retries(queu
             payload=f"partial-{index}".encode(),
             submission_id=f"partial-{index}",
         )
-        assert queue.yield_task(lease, request_id=f"yield-{index}", input_ref=prior) == "pending"
-        assert queue.yield_task(lease, request_id=f"yield-{index}", input_ref=prior) == "pending"
+        assert (
+            queue.yield_task(lease, request_id=f"yield-{index}", input_ref=prior)
+            == "pending"
+        )
+        assert (
+            queue.yield_task(lease, request_id=f"yield-{index}", input_ref=prior)
+            == "pending"
+        )
     restored = recover(queue)
     try:
         assignment = restored.acquire("resumed-worker").assignments[0]
@@ -721,7 +809,9 @@ def test_juicefs_profile_requires_explicit_declarations(root):
     assert not backend.diagnostics()["mount_options_automatically_verified"]
     assert backend.diagnostics()["multi_machine_admission"] == "not_verified"
     with pytest.raises(ValueError):
-        FilesystemBackend(root, profile="juicefs", declaration={**declaration, "writeback": True})
+        FilesystemBackend(
+            root, profile="juicefs", declaration={**declaration, "writeback": True}
+        )
 
 
 def test_inspect_retains_shared_segments_and_only_deletes_confirmed_orphans(queue):
@@ -732,7 +822,9 @@ def test_inspect_retains_shared_segments_and_only_deletes_confirmed_orphans(queu
     receipt = complete(queue, lease)
     # A whole pack remains retained if any extent is reachable. Only an
     # independent writer's entirely unreferenced pack is an orphan.
-    cohabitant = queue.store.publish([Record("unused", b"same-pack")], submission_id="unused")
+    cohabitant = queue.store.publish(
+        [Record("unused", b"same-pack")], submission_id="unused"
+    )
     other = SharedFilesystemStore(queue.store.backend.root, "run")
     orphan = other.publish([Record("orphan", b"unused")], submission_id="orphan")
     other.close()
@@ -773,7 +865,9 @@ def test_inspect_does_not_repair_journal_or_delete_on_missing_retained_data(queu
 def _rpc_server(root, connection):
     from straw.rpc import serve
 
-    coordinator = Coordinator(SharedFilesystemStore(root, "run"), exclusive_owner="spawned test server")
+    coordinator = Coordinator(
+        SharedFilesystemStore(root, "run"), exclusive_owner="spawned test server"
+    )
     serve(
         coordinator,
         ("127.0.0.1", 0),
@@ -788,8 +882,12 @@ def _rpc_worker(root, port, index):
 
     client = QueueClient(f"http://127.0.0.1:{port}", token="test-token")
     store = SharedFilesystemStore(root, "run")
-    client.call("submit_tasks", request_id=f"submit-{index}", tasks=[TaskSpec(f"task-{index}")])
-    assignment = client.call("acquire", worker_id=str(index), max_tasks=1)["assignments"][0]
+    client.call(
+        "submit_tasks", request_id=f"submit-{index}", tasks=[TaskSpec(f"task-{index}")]
+    )
+    assignment = client.call("acquire", worker_id=str(index), max_tasks=1)[
+        "assignments"
+    ][0]
     lease = Lease(**assignment["lease"])
     ref = store.publish(
         [
@@ -841,9 +939,10 @@ def test_multiple_producer_worker_processes_and_server_crash(root):
         try:
             page = restored.read_commits()
             assert len(page.commits) == 4
-            assert {next(restored.store.read(commit.result_ref)).payload for commit in page.commits} == {
-                f"task-{i}".encode() for i in range(4)
-            }
+            assert {
+                next(restored.store.read(commit.result_ref)).payload
+                for commit in page.commits
+            } == {f"task-{i}".encode() for i in range(4)}
         finally:
             restored.close()
     finally:
@@ -867,12 +966,16 @@ def test_sparse_processing_releases_budget_and_checkpoint_view_can_rewind(root):
         complete(queue, lease, submission_id=f"complete-{i}", payload=f"{i}".encode())
     assert queue.acquire("worker").status == "backpressured"
     token = queue.open_consumer("training", exclusive_owner="one builder")
-    state = queue.store.publish([Record("state", b"opaque consumer snapshot")], submission_id="state")
+    state = queue.store.publish(
+        [Record("state", b"opaque consumer snapshot")], submission_id="state"
+    )
     progress = queue.store.publish(
         [
             Record(
                 "progress",
-                encode({"version": 1, "processed_positions": [1], "finished_batches": []}),
+                encode(
+                    {"version": 1, "processed_positions": [1], "finished_batches": []}
+                ),
                 codec="json.v1",
             )
         ],
@@ -901,7 +1004,9 @@ def test_sparse_processing_releases_budget_and_checkpoint_view_can_rewind(root):
             fetch_cursor=0,
             processed_cursor=0,
         )
-        assert restored._usage()["records"] == 3  # two accepted plus the reserved attempt
+        assert (
+            restored._usage()["records"] == 3
+        )  # two accepted plus the reserved attempt
         assert len(restored.read_commits().commits) == 2
     finally:
         restored.close()
@@ -918,12 +1023,18 @@ def test_control_collection_can_drain_when_production_and_pending_are_full(root)
     complete(queue, lease)
     queue.submit_tasks("next", [TaskSpec("next")])
     assert queue.acquire("worker").status == "backpressured"
-    queue.submit_tasks("collection", [TaskSpec("collection", control=True, estimated_records=0)])
+    queue.submit_tasks(
+        "collection", [TaskSpec("collection", control=True, estimated_records=0)]
+    )
     with pytest.raises(ResourceLimitExceeded):
-        queue.submit_tasks("extra-control", [TaskSpec("extra", control=True, estimated_records=0)])
+        queue.submit_tasks(
+            "extra-control", [TaskSpec("extra", control=True, estimated_records=0)]
+        )
     assert queue.acquire("worker").status == "backpressured"
     control = queue.acquire("builder", control=True).assignments[0].lease
-    complete(queue, control, submission_id="collection", payload=b"existing output refs")
+    complete(
+        queue, control, submission_id="collection", payload=b"existing output refs"
+    )
     assert len(queue.read_commits().commits) == 2
     queue.close()
 
@@ -935,11 +1046,16 @@ if __name__ == "__main__":
 def test_progress_batch_rejects_corrupt_later_manifest_without_partial_commit(queue):
     from straw import Publication
 
-    original = queue.store.publish([Record("original", b"original")], submission_id="original")
-    queue.submit_tasks("tasks", [TaskSpec("a", input_ref=original), TaskSpec("b", input_ref=original)])
+    original = queue.store.publish(
+        [Record("original", b"original")], submission_id="original"
+    )
+    queue.submit_tasks(
+        "tasks", [TaskSpec("a", input_ref=original), TaskSpec("b", input_ref=original)]
+    )
     leases = [a.lease for a in queue.acquire("worker", 2).assignments]
     refs = queue.store.publish_many(
-        [Publication((Record("a", b"first"),)), Publication((Record("b", b"second"),))], submission_id="progress"
+        [Publication((Record("a", b"first"),)), Publication((Record("b", b"second"),))],
+        submission_id="progress",
     )
     assert refs[0].manifest.segment == refs[1].manifest.segment
     before_state = queue.tasks
@@ -957,10 +1073,145 @@ def test_progress_batch_rejects_corrupt_later_manifest_without_partial_commit(qu
     with pytest.raises(CorruptData, match="payload checksum"):
         queue.save_task_progress_many(
             [
-                {"lease": dataclasses.asdict(lease), "input_ref": dataclasses.asdict(ref)}
+                {
+                    "lease": dataclasses.asdict(lease),
+                    "input_ref": dataclasses.asdict(ref),
+                }
                 for lease, ref in zip(leases, refs, strict=True)
             ],
             request_id="batch",
         )
     assert queue.tasks == before_state
     assert queue.journal.path.read_bytes() == before_wal
+
+
+def test_priority_yield_and_fifo_survive_wal_recovery(queue):
+    queue.submit_tasks("initial", [TaskSpec("a"), TaskSpec("b"), TaskSpec("fresh")])
+    leases = [assignment.lease for assignment in queue.acquire("writer", 2).assignments]
+    refs = [
+        result(queue, lease, submission_id=f"partial:{i}")
+        for i, lease in enumerate(leases)
+    ]
+    updates = [
+        {
+            "lease": dataclasses.asdict(lease),
+            "input_ref": dataclasses.asdict(ref),
+            "priority": 1,
+            "scheduling_key": 2,
+            "metadata": {"stage": "partial"},
+        }
+        for lease, ref in zip(reversed(leases), reversed(refs), strict=True)
+    ]
+    before = queue.journal.sequence
+    assert queue.yield_tasks(updates, request_id="return") == "pending"
+    assert queue.journal.sequence == before + 1
+    assert queue.yield_tasks(updates, request_id="return") == "pending"
+    assert queue.journal.sequence == before + 1
+    queue.submit_tasks("ready", [TaskSpec("ready", priority=2, scheduling_key=99)])
+    queue.submit_tasks("older", [TaskSpec("older", priority=1, scheduling_key=1)])
+    assert [task.task_id for task in queue.pending_tasks()] == [
+        "ready",
+        "older",
+        "b",
+        "a",
+        "fresh",
+    ]
+    assert queue.outstanding_reads() == ()
+    restored = recover(queue)
+    try:
+        assignments = restored.acquire("next", 5).assignments
+        assert [item.task.task_id for item in assignments] == [
+            "ready",
+            "older",
+            "b",
+            "a",
+            "fresh",
+        ]
+        assert assignments[2].task.input_ref == refs[1]
+        assert restored.heartbeat(leases) == ["StaleAttempt", "StaleAttempt"]
+        assert all(
+            restored.task_status(lease.task_id)["failures"] == 0 for lease in leases
+        )
+    finally:
+        restored.close()
+
+
+def test_batched_yield_rejects_stale_member_without_partial_changes(queue):
+    queue.submit_tasks("tasks", [TaskSpec("a"), TaskSpec("b")])
+    leases = [assignment.lease for assignment in queue.acquire("writer", 2).assignments]
+    refs = [
+        result(queue, lease, submission_id=f"partial:{i}")
+        for i, lease in enumerate(leases)
+    ]
+    queue.release_tasks([leases[1]], request_id="release-b")
+    updates = [
+        {
+            "lease": dataclasses.asdict(lease),
+            "input_ref": dataclasses.asdict(ref),
+            "priority": 1,
+        }
+        for lease, ref in zip(leases, refs, strict=True)
+    ]
+    before, wal = queue.tasks, queue.journal.path.read_bytes()
+    with pytest.raises(StaleAttempt):
+        queue.yield_tasks(updates, request_id="return")
+    assert queue.tasks == before
+    assert queue.journal.path.read_bytes() == wal
+
+
+@pytest.mark.parametrize(
+    "field,value", [("priority", True), ("priority", 2**63), ("scheduling_key", 1.5)]
+)
+def test_scheduling_keys_are_validated_before_submit(queue, field, value):
+    with pytest.raises(ValueError, match="signed 64-bit integer"):
+        queue.submit_tasks("bad", [TaskSpec("bad", **{field: value})])
+    assert queue.pending_tasks() == []
+
+
+@pytest.mark.parametrize(
+    "phase,committed", [("after_journal_part", False), ("after_journal_sync", True)]
+)
+def test_batched_yield_crash_recovers_all_inputs_and_order_or_none(
+    queue, phase, committed
+):
+    queue.submit_tasks("initial", [TaskSpec("a"), TaskSpec("b")])
+    leases = [assignment.lease for assignment in queue.acquire("writer", 2).assignments]
+    refs = [
+        result(queue, lease, submission_id=f"prefix:{i}")
+        for i, lease in enumerate(leases)
+    ]
+    updates = [
+        {
+            "lease": dataclasses.asdict(lease),
+            "input_ref": dataclasses.asdict(ref),
+            "priority": 1,
+            "scheduling_key": -i,
+            "metadata": {"stage": "partial"},
+        }
+        for i, (lease, ref) in enumerate(zip(leases, refs, strict=True))
+    ]
+
+    def crash(current):
+        if current == phase:
+            raise OSError(errno.EIO, "injected yield crash")
+
+    queue.store.backend.fault = crash
+    with pytest.raises(IndeterminateCommit):
+        queue.yield_tasks(updates, request_id="return")
+    queue.store.backend.fault = lambda _: None
+    restored = recover(queue)
+    try:
+        tasks = restored.pending_tasks()
+        assert [task.task_id for task in tasks] == (
+            ["b", "a"] if committed else ["a", "b"]
+        )
+        assert [task.input_ref for task in tasks] == (
+            refs[::-1] if committed else [None, None]
+        )
+        if committed:
+            assert restored.yield_tasks(updates, request_id="return") == "pending"
+        else:
+            with pytest.raises(StaleAttempt):
+                restored.yield_tasks(updates, request_id="return")
+    finally:
+        restored.close()

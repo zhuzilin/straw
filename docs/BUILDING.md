@@ -137,17 +137,20 @@ job uses GitHub OIDC with `id-token: write`; no PyPI API token or GitHub secret
 is needed. See [PyPI's setup guide](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
 and [publishing guide](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
 
-After the release commit is ready and the package versions are `0.1.0`, publish
-the first release by pushing its tag:
+After committing the release changes, ensure that `pyproject.toml`, `Cargo.toml`
+and the `straw` entry in `Cargo.lock` share the release version. For example, for
+version `0.1.1`, create and push a new tag on that commit:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 The first successful upload creates the PyPI project; registering a pending
 publisher alone does not reserve the name. Later releases use a new matching
-version and tag. If a build or test fails, fix it before publishing; failed jobs
+version and tag. An existing tag does not include later working-tree changes;
+check its target before publishing and do not overwrite a published release.
+If a build or test fails, fix it before publishing; failed jobs
 prevent the publishing job from running.
 
 Hosted CI uses local Linux filesystems and CPU PyTorch. Multi-client JuiceFS
@@ -155,8 +158,9 @@ qualification, storage-service faults and GPU training remain separate
 [deployment/application checks](VERIFICATION.md). Inspect hosted results
 separately; a local build is not proof that the matrix ran.
 
-Before distributing a release, align the versions in `Cargo.toml` and
-`pyproject.toml`, run the [verification checks](VERIFICATION.md), inspect wheel
+Before distributing a release, align the versions in `Cargo.toml`,
+`pyproject.toml` and the `straw` entry in `Cargo.lock`, run the
+[verification checks](VERIFICATION.md), inspect wheel
 and sdist contents, run `check_wheel.py`, and preserve the wheel SHA-256 plus
 the exact source revision. The changelog should state protocol/API compatibility
 and unresolved limits. Upload the already tested artifact; rebuilding afterward

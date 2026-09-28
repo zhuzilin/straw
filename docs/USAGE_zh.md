@@ -165,3 +165,12 @@ Rust reader 只保留最后一个已认证索引，以完整 extent 描述符区
 发布依赖校验、批量续跑进度、消费者快照及 GC 遍历在 Rust 内部也复用这种有界 reader。文件格式、WAL 提交顺序、容量限制和所有权释放规则均未改变。
 
 `store.read(publication)` 同样在迭代器生命周期内持有读取会话。释放数据 owner 前应读完或关闭迭代器。不同迭代器会重新认证索引。
+
+
+### 持久化任务排序
+
+`TaskSpec.priority`（默认 0）降序，其次 `scheduling_key`（默认 0）升序，再按 FIFO；两个字段均为有符号 64 位整数。排序字段及提交/归还顺序会从 WAL 恢复。Rust coordinator 维护有序 pending 索引，选取任务无需读取 payload。
+
+先发布续跑输入，再调用 `yield_tasks(updates, request_id=...)`。每项包含 `lease`、`input_ref`，可同时替换 `priority`、`scheduling_key` 和 `metadata`。整批校验后只提交一次 WAL；所有 lease 同时结束，任务进入其排序键的 FIFO 队尾。任何 stale lease 都会拒绝整批。相同请求重试幂等；只有确实需要另一个输入版本时才重新发布。与此不同，`save_task_progress_many` 保留 lease。
+
+`pending_tasks()` 返回按领取顺序排列的任务 spec，可用于暂停后的快照；暂停边界和输入引用持有由应用协调。这些 API 需要 `straw-queue>=0.1.1`。

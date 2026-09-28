@@ -279,3 +279,23 @@ The Rust reader retains only the last authenticated index, keyed by the complete
 Publication dependency validation, continuation batches, consumer snapshots and GC traversal use the same bounded native reader internally. Formats, WAL commit ordering, capacity limits and owner-release rules are unchanged.
 
 `store.read(publication)` also owns a scoped session for the lifetime of its iterator. Exhaust or close the iterator before releasing its data owner. Separate iterators reauthenticate the index.
+
+
+### Persistent task scheduling
+
+`TaskSpec.priority` (default 0) is ordered descending, then `scheduling_key`
+(default 0) ascending, then FIFO. Both keys are signed 64-bit integers. Keys and
+submission/return order survive WAL recovery; the Rust coordinator maintains an
+ordered pending index, without loading payloads to select the next task.
+
+Publish continuation inputs before calling `yield_tasks(updates, request_id=...)`.
+Each update contains `lease` and `input_ref`, and may replace `priority`,
+`scheduling_key` and `metadata`. The whole batch validates before one WAL commit;
+all leases end together and the tasks become pending at the tail of their key's
+FIFO order. A stale lease rejects the whole batch. Retrying the identical request
+is idempotent. Publish again only if you intend to create a different input.
+This is distinct from `save_task_progress_many`, which keeps leases active.
+`pending_tasks()` returns ordered task specifications for a paused snapshot;
+applications must coordinate the pause and retain the referenced inputs.
+
+These APIs require `straw-queue>=0.1.1`.

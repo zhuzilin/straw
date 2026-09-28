@@ -112,6 +112,20 @@ class Coordinator:
         """Persist a bounded batch of leased continuation references atomically."""
         return self._call("save_task_progress_many", locals())
 
+    def yield_tasks(self, updates, *, request_id):
+        """Atomically persist inputs/scheduling fields and return leased tasks to pending.
+
+        Each update contains lease and input_ref, and may replace priority,
+        scheduling_key and metadata. Higher priority is acquired first; within
+        a priority, lower scheduling_key precedes FIFO return/submission order.
+        Callers must finish using the inputs before yielding their read lifetime.
+        """
+        return self._call("yield_tasks", locals())
+
+    def pending_tasks(self, *, task_prefix=None, min_priority=None):
+        """Snapshot pending task specifications in acquisition order."""
+        return [TaskSpec.from_dict(v) for v in self._call("pending_tasks", locals())]
+
     def release_tasks(self, leases, *, request_id):
         """Release existing inputs atomically without spending failure retries."""
         return self._call("release_tasks", locals())
