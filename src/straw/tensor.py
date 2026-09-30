@@ -35,8 +35,8 @@ DTYPES = {
     )
 }
 CHUNK_BYTES = 4 * 1024**2
-MAX_TENSOR_BYTES = 1024**3
-MAX_PUBLICATION_BYTES = 4 * 1024**3 + 8 * 1024**2
+MAX_TENSOR_BYTES = 16 * 1024**3
+MAX_PUBLICATION_BYTES = 16 * 1024**2
 
 
 def tensor_record(value, identity, *, kind=None):
@@ -49,12 +49,15 @@ def tensor_record(value, identity, *, kind=None):
     if dtype not in DTYPES:
         raise UnsupportedSchema(f"Unsupported tensor dtype: {dtype}")
     payload = memoryview(value.reshape(-1).view(torch.uint8).numpy()).cast("B") if value.numel() else memoryview(b"")
-    chunks = [hashlib.sha256(payload[i : i + CHUNK_BYTES]).hexdigest() for i in range(0, len(payload), CHUNK_BYTES)]
+    chunk_bytes = CHUNK_BYTES
+    while (len(payload) + chunk_bytes - 1) // chunk_bytes > 512:
+        chunk_bytes *= 2
+    chunks = [hashlib.sha256(payload[i : i + chunk_bytes]).hexdigest() for i in range(0, len(payload), chunk_bytes)]
     metadata = {
         "shape": list(value.shape),
         "dtype": dtype,
         "kind": kind,
-        "chunk_bytes": CHUNK_BYTES,
+        "chunk_bytes": chunk_bytes,
         "chunks": chunks,
     }
     return Record(identity, payload, "tensor.v1", metadata)

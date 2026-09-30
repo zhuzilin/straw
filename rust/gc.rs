@@ -98,13 +98,16 @@ impl Catalog {
             }
             let sequence = u64::from_le_bytes(header[8..16].try_into().unwrap());
             let n = u64::from_le_bytes(header[16..24].try_into().unwrap());
-            if n > 64 * 1024 * 1024 || sequence != self.sequence {
+            if sequence != self.sequence {
                 return fail(
                     "CorruptData",
                     "Storage catalog length/sequence outside bounds",
                 );
             }
-            if remaining < 56 + n + 40 {
+            let frame_size = n.checked_add(96).ok_or_else(|| {
+                Error::new("CorruptData", "Storage catalog frame length overflow")
+            })?;
+            if remaining < frame_size {
                 break;
             }
             let mut raw = vec![0; n as usize];
@@ -173,12 +176,6 @@ impl Catalog {
     fn append(&mut self, config: &Config, mut event: Value, fault: &mut Fault<'_>) -> Result<()> {
         event["run_id"] = json!(config.run_id);
         let raw = bytes(&event)?;
-        if raw.len() > 64 * 1024 * 1024 {
-            return fail(
-                "ResourceLimitExceeded",
-                "Storage catalog transaction too large",
-            );
-        }
         let mut header = b"STRGC001".to_vec();
         header.extend_from_slice(&self.sequence.to_le_bytes());
         header.extend_from_slice(&(raw.len() as u64).to_le_bytes());

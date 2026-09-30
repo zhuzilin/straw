@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .errors import CorruptData, ResourceLimitExceeded
+from .errors import CorruptData
 
 
 def encode(value: Any) -> bytes:
@@ -32,10 +32,8 @@ def digest(value: Any) -> str:
 
 
 def bounded_metadata(value: Any, limit: int) -> bytes:
-    result = encode(value)
-    if len(result) > limit:
-        raise ResourceLimitExceeded(f"Metadata is {len(result)} bytes; maximum is {limit}; use a manifest")
-    return result
+    """Compatibility alias for encode; the former metadata quota is ignored."""
+    return encode(value)
 
 
 @dataclass(frozen=True)
@@ -158,6 +156,13 @@ class CommitPage:
 
 @dataclass(frozen=True)
 class Limits:
+    """Legacy queue identity fields, retained for caller/recovery compatibility.
+
+    These values no longer reject submissions, results or control messages, or
+    throttle acquisition. The application owns admission/concurrency policy;
+    disk-backed result sizes are not bounded by an in-memory queue budget.
+    """
+
     pending_tasks: int = 10000
     inflight_tasks: int = 256
     control_tasks: int = 1

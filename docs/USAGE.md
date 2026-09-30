@@ -15,8 +15,8 @@ store = SharedFilesystemStore(
     "/shared/new-job", "new-job",
     online_gc=True,
     segment_target_bytes=1024**3,      # Rotation target, not a hard file-size limit.
-    max_record_bytes=256 * 1024**2,
-    max_buffer_bytes=512 * 1024**2,
+    max_record_bytes=16 * 1024**3,
+    max_buffer_bytes=16 * 1024**2,
 )
 ```
 
@@ -30,6 +30,25 @@ Enable online GC from pool creation. Do not turn an existing untracked queue
 into a GC-enabled pool and assume its old references have owners. GC is opt-in;
 when a catalog exists, all participants must honor it. None of these calls
 create a scheduler or start an automatic GC thread.
+
+## Large records and bounded write buffers
+
+`max_record_bytes` is a compatibility argument and no longer caps records.
+`max_buffer_bytes` bounds temporary payload copies inside the native writer,
+independently of record/publication size. The writer pins Python input buffers
+and copies at most 4 MiB per chunk; large records pipeline copying and I/O using
+at most two chunks. Applications do not need to split payloads to fit scratch
+memory. Metadata/index allocations, caller-owned inputs, Python serialization
+and full-record reads are outside this payload-copy budget. There are no fixed
+record-count, dependency-count, metadata, manifest or index size quotas.
+
+Do not mutate input buffers until publication returns. The writer rechecks each
+payload while writing and rejects detected changes before committing. Chunked
+I/O retains the existing record framing and tensor slice API: it does not expose
+partial records or alter durable publication, retry, ownership or GC ordering.
+A pack rotation target is soft; a large record/publication may exceed it. Reads
+of old files retain their stored checksum chunk sizes. A reader configured with
+an explicit smaller record limit must raise it to read larger records.
 
 ## Concurrency: processes and threads
 
@@ -125,7 +144,7 @@ requires a leading dimension. `.load()` returns a CPU PyTorch tensor; call
 `ref[start:stop]` reads contiguous rows and verifies intersecting 4 MiB chunks.
 Only slices with step 1 are supported. These are file reads, not mmap views.
 `load(pin_memory=True)` requests pinned CPU memory where PyTorch supports it.
-Tune store record/publication limits for large tensors; defaults still apply.
+Large tensors stream through bounded write scratch without record/publication quotas.
 
 To restore several tensor descriptors from one publication efficiently:
 
@@ -193,11 +212,22 @@ for durable intermediate inputs while retaining the lease; `yield_task` or
 `fail_task` and timeouts use the task's attempt budget. Only publish a
 continuation when all its fields describe one complete, consistent prefix.
 
-`Limits` bounds queue pending/in-flight work, accepted data, ready batches and
-control metadata. These are conservative logical budgets, not physical disk
-quotas. Pass the same limits, codecs, lease duration, run ID and queue ID when
-recovering a queue. In protocol v1 the default queue ID is `rollout`;
-applications can choose an explicit name such as `work`.
+`Limits` retains its fields solely for API and stored queue-identity compatibility.
+They no longer reject pending/in-flight work, result bytes/tokens/records, ready
+batches or control messages. Applications control concurrency through requested
+acquisition sizes and their own schedulers. Accounting metrics remain available;
+large immutable results are accepted by reference without rewriting payloads.
+Pass the same legacy limits, codecs, lease duration, run ID and queue ID when
+recovering an existing queue. In protocol v1 the default queue ID is `rollout`.
+
+The removed fixed quotas include 4 GiB per result, 64 GiB of outstanding results,
+100 million tokens, 10,000 records/dependency nodes, 64 KiB record envelopes,
+256 KiB control metadata, 8 MiB indexes/manifests/journal transactions and 64 MiB
+catalog transactions. The existing frame uses a u32 envelope length; that format
+boundary, u64 counters, authenticated file extents, checksums, task/attempt
+ownership, retry counts, leases and writer exclusion remain enforced. Removing
+quotas does not provide unlimited RAM/disk; metadata is still materialized in
+memory and payload writes retain bounded scratch buffers.
 
 ## Lifetime and online GC
 
@@ -276,7 +306,7 @@ Use one `with store.read_session() as reader:` block for adjacent immutable publ
 
 The Rust reader retains only the last authenticated index, keyed by the complete extent descriptor. Each manifest and record read still authenticates its frame and payload; tensor reads authenticate touched chunks. `validate` rechecks logical descriptors and task/attempt authorization on every call. Index authentication runs again after an extent switch or in a new session. Keep a durable owner or `store.pin` for the entire operation: a read session is not an ownership pin. Sessions close on context exit and reject all inherited operations after fork.
 
-Publication dependency validation, continuation batches, consumer snapshots and GC traversal use the same bounded native reader internally. Formats, WAL commit ordering, capacity limits and owner-release rules are unchanged.
+Publication dependency validation, continuation batches, consumer snapshots and GC traversal use the same bounded native reader internally. Formats, WAL commit ordering, owner-release rules remain unchanged; logical capacity quotas are no longer enforced.
 
 `store.read(publication)` also owns a scoped session for the lifetime of its iterator. Exhaust or close the iterator before releasing its data owner. Separate iterators reauthenticate the index.
 

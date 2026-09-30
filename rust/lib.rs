@@ -2,6 +2,7 @@
 pub mod coordinator;
 pub mod gc;
 pub mod journal;
+pub mod payload;
 #[cfg(feature = "python")]
 mod python;
 pub mod store;

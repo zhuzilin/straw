@@ -54,15 +54,6 @@ fn retry(task: &mut Value) {
     });
     task["lease"] = Value::Null;
 }
-fn bounded(value: &Value, limit: u64) -> Result<()> {
-    if bytes(value)?.len() as u64 > limit {
-        return fail(
-            "ResourceLimitExceeded",
-            "Control metadata limit exceeded; use a manifest",
-        );
-    }
-    Ok(())
-}
 fn validate_scheduling(value: &Value) -> Result<()> {
     for key in ["priority", "scheduling_key"] {
         if value.get(key).is_some_and(|v| v.as_i64().is_none()) {
@@ -697,10 +688,8 @@ impl Coordinator {
                 "Coordinator unavailable; stop owner and recover",
             );
         }
-        let metadata = number(&self.limits, "metadata_bytes");
         match method {
             "release_task_reads" => {
-                bounded(args, metadata)?;
                 for lease in array(args, "leases")? {
                     let prior = &self.state["readers"][field(lease, "attempt_id")?];
                     if !prior.is_null() && prior["lease"] != *lease {
@@ -721,7 +710,7 @@ impl Coordinator {
             "submit_tasks" => {
                 let tasks = array(args, "tasks")?;
                 let producer = args["producer_id"].as_str();
-                if producer.is_some() != !args["producer_state"].is_null() {
+                if producer.is_some() == args["producer_state"].is_null() {
                     return fail("ValueError", "Producer ID/state must be provided together");
                 }
                 let content = if producer.is_some() {
@@ -729,7 +718,6 @@ impl Coordinator {
                 } else {
                     json!(tasks)
                 };
-                bounded(&content, metadata)?;
                 let request = self.request("submit", field(args, "request_id")?, &content)?;
                 if !request.2.is_null() {
                     self.count("duplicate_submissions");
@@ -743,29 +731,6 @@ impl Coordinator {
                         "StorageUnavailable",
                         "Scheduling paused after storage failure",
                     );
-                }
-                for (control, limit) in [
-                    (false, number(&self.limits, "pending_tasks")),
-                    (true, number(&self.limits, "control_tasks")),
-                ] {
-                    let existing = vals(&self.state["tasks"])
-                        .filter(|t| {
-                            (t["state"] == "pending" || (control && t["state"] == "leased"))
-                                && boolean(&t["spec"], "control") == control
-                        })
-                        .count();
-                    if existing as u64
-                        + tasks
-                            .iter()
-                            .filter(|t| boolean(t, "control") == control)
-                            .count() as u64
-                        > limit
-                    {
-                        return fail(
-                            "ResourceLimitExceeded",
-                            "Pending/control task budget exceeded",
-                        );
-                    }
                 }
                 let mut ids = vec![];
                 let mut unique = HashSet::new();
@@ -785,12 +750,6 @@ impl Coordinator {
                         if boolean(t, "control") && estimate != 0 {
                             return fail("ValueError", "Control tasks cannot reserve production");
                         };
-                        if estimate > number(&self.limits, &format!("accepted_{key}")) {
-                            return fail(
-                                "ResourceLimitExceeded",
-                                "Task estimate exceeds output budget",
-                            );
-                        }
                     }
                     if !t["input_ref"].is_null() {
                         self.validate(&t["input_ref"], None, None)?;
@@ -803,11 +762,7 @@ impl Coordinator {
             "acquire" => {
                 let worker = field(args, "worker_id")?;
                 let max = args["max_tasks"].as_u64().unwrap_or(1);
-                if worker.is_empty()
-                    || worker.len() > 1024
-                    || max == 0
-                    || max > number(&self.limits, "inflight_tasks")
-                {
+                if worker.is_empty() || worker.len() > 1024 || max == 0 {
                     return fail("ValueError", "Invalid worker identity/max tasks");
                 }
                 let expired = self
@@ -835,14 +790,8 @@ impl Coordinator {
                 }
                 let control = boolean(args, "control");
                 let ids = args["task_ids"].as_array();
-                if let Some(ids) = ids {
-                    bounded(&json!(ids), metadata)?;
-                }
                 let prefix = args["task_prefix"].as_str();
-                let mut usage = self.usage()?;
                 let mut assignments = vec![];
-                let mut assignment_bytes = 64u64;
-                let mut pending = false;
                 let candidates: Vec<&String> = if let Some(ids) = ids {
                     let mut selected = ids
                         .iter()
@@ -867,61 +816,20 @@ impl Coordinator {
                     {
                         continue;
                     }
-                    pending = true;
-                    if control {
-                        if number(&usage, "control_inflight")
-                            >= number(&self.limits, "control_tasks")
-                        {
-                            continue;
-                        }
-                    } else if number(&usage, "inflight") >= number(&self.limits, "inflight_tasks")
-                        || number(&usage, "ready_bytes") >= number(&self.limits, "ready_bytes")
-                        || ["records", "bytes", "tokens"].iter().any(|k| {
-                            number(&usage, k) >= number(&self.limits, &format!("accepted_{k}"))
-                                || number(&usage, k) + number(spec, &format!("estimated_{k}"))
-                                    > number(&self.limits, &format!("accepted_{k}"))
-                        })
-                    {
-                        continue;
-                    }
                     let lease = json!({"run_id":self.store.config.run_id,"queue_id":self.queue_id,"task_id":id,"attempt_id":uid(),"generation":number(task,"generation")+1,"coordinator_epoch":self.epoch,"token":format!("{}{}",uid(),uid()),"worker_id":worker});
                     let assignment = json!({"task":spec,"lease":lease});
-                    let size = bytes(&assignment)?.len() as u64 + 1;
-                    if assignment_bytes + size > metadata {
-                        if assignments.is_empty() {
-                            return fail(
-                                "ResourceLimitExceeded",
-                                "Assignment exceeds control metadata limit",
-                            );
-                        };
-                        break;
-                    }
-                    assignment_bytes += size;
                     assignments.push(assignment);
-                    let key = if control {
-                        "control_inflight"
-                    } else {
-                        "inflight"
-                    };
-                    usage[key] = json!(number(&usage, key) + 1);
-                    for k in ["records", "bytes", "tokens"] {
-                        usage[k] =
-                            json!(number(&usage, k) + number(spec, &format!("estimated_{k}")));
-                    }
                     if assignments.len() as u64 == max {
                         break;
                     }
                 }
                 if assignments.is_empty() {
-                    return Ok(
-                        json!({"status":if pending{"backpressured"}else{"empty"},"assignments":[]}),
-                    );
+                    return Ok(json!({"status":"empty","assignments":[]}));
                 }
                 let leases = assignments
                     .iter()
                     .map(|a| a["lease"].clone())
                     .collect::<Vec<_>>();
-                bounded(&json!(leases), metadata)?;
                 self.commit(json!([{"type":"Leased","leases":leases}]), fault)?;
                 for lease in leases {
                     self.deadlines
@@ -932,7 +840,6 @@ impl Coordinator {
             "save_task_progress_many" | "yield_tasks" => {
                 let yielding = method == "yield_tasks";
                 let updates = array(args, "updates")?;
-                bounded(&json!(updates), metadata)?;
                 let request = self.request(
                     if yielding {
                         "yield_many"
@@ -987,7 +894,6 @@ impl Coordinator {
             }
             "release_tasks" => {
                 let leases = array(args, "leases")?;
-                bounded(&json!(leases), metadata)?;
                 let request =
                     self.request("release_tasks", field(args, "request_id")?, &json!(leases))?;
                 if !request.2.is_null() {
@@ -1021,7 +927,6 @@ impl Coordinator {
             }
             "heartbeat" => {
                 let leases = array(args, "leases")?;
-                bounded(&json!(leases), metadata)?;
                 let mut results = vec![];
                 for lease in leases {
                     match self.valid_lease(lease, now) {
@@ -1040,7 +945,6 @@ impl Coordinator {
             }
             "complete_task" => {
                 let started = Instant::now();
-                bounded(args, metadata)?;
                 let lease = &args["lease"];
                 let id = field(args, "submission_id")?;
                 if id.is_empty() || id.len() > 1024 {
@@ -1070,14 +974,6 @@ impl Coordinator {
                 if number(reference, "records") == 0 && !boolean(&task["spec"], "allow_empty") {
                     return fail("InvalidReference", "Task does not allow empty output");
                 }
-                if number(reference, "payload_bytes") > number(&self.limits, "max_result_bytes")
-                    || number(reference, "tokens") > number(&self.limits, "max_result_tokens")
-                {
-                    return fail(
-                        "ResourceLimitExceeded",
-                        "Per-task result upper bound exceeded",
-                    );
-                }
                 self.validate(
                     reference,
                     Some(field(lease, "task_id")?),
@@ -1100,7 +996,6 @@ impl Coordinator {
                 let retryable = args["retryable"].as_bool().unwrap_or(true);
                 let failure = &args["failure"];
                 let content = json!({"lease":lease,"failure":failure,"retryable":retryable});
-                bounded(&content, metadata)?;
                 let request = self.request("fail", field(args, "request_id")?, &content)?;
                 if !request.2.is_null() {
                     return Ok(request.2);
@@ -1124,7 +1019,6 @@ impl Coordinator {
             }
             "yield_task" | "save_task_progress" => {
                 let content = json!({"lease":args["lease"],"input_ref":args["input_ref"]});
-                bounded(&content, metadata)?;
                 let yielding = method == "yield_task";
                 let request = self.request(
                     if yielding { "yield" } else { "task_progress" },
@@ -1207,10 +1101,10 @@ impl Coordinator {
                 let commits = array(&self.state, "commits")?;
                 let cursor = number(args, "cursor") as usize;
                 let limit = args["limit"].as_u64().unwrap_or(100) as usize;
-                if cursor > commits.len() || limit == 0 || limit > 1000 {
+                if cursor > commits.len() || limit == 0 {
                     return fail("ValueError", "Invalid cursor/page limit");
                 }
-                let mut end = (cursor + limit).min(commits.len());
+                let end = cursor.saturating_add(limit).min(commits.len());
                 if cursor < number(&self.state, "retired_prefix") as usize
                     || array(&self.state, "retired_positions")?
                         .iter()
@@ -1220,15 +1114,6 @@ impl Coordinator {
                     return fail(
                         "InvalidReference",
                         "Requested history was released; resume from a retained checkpoint or a live cursor",
-                    );
-                }
-                while bytes(&json!(&commits[cursor..end]))?.len() as u64 > metadata {
-                    end = cursor + (end - cursor) / 2;
-                }
-                if end == cursor && cursor < commits.len() {
-                    return fail(
-                        "ResourceLimitExceeded",
-                        "Commit exceeds control message limit",
                     );
                 }
                 Ok(
@@ -1324,7 +1209,6 @@ impl Coordinator {
                 }
                 self.validate(&args["plan_ref"], None, None)?;
                 let batch = json!({"batch_id":batch_id,"consumer_id":id,"input_positions":positions,"plan_ref":args["plan_ref"],"ready":false});
-                bounded(&batch, metadata)?;
                 let request = self.request("plan_batch", batch_id, &batch)?;
                 if !request.2.is_null() {
                     return Ok(self.state["batches"][batch_id].clone());
@@ -1350,7 +1234,6 @@ impl Coordinator {
                 self.validate(&args["ready_ref"], None, None)?;
                 let state = self.consumer_state(args)?;
                 let content = json!({"batch_id":batch,"ready_ref":args["ready_ref"],"state":state});
-                bounded(&content, metadata)?;
                 let request = self.request("batch_ready", batch, &content)?;
                 if !request.2.is_null() {
                     return Ok(request.2);
@@ -1396,7 +1279,6 @@ impl Coordinator {
                 }
                 let mut content = checkpoint;
                 content["checkpoint_ref"] = reference.clone();
-                bounded(&content, metadata)?;
                 let request = self.request("checkpoint", id, &content)?;
                 if request.2.is_null() {
                     self.commit(

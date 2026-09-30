@@ -1,7 +1,7 @@
 """Small JSON control transport for CPU examples and independent-host admission.
 
 The training adapter can host Coordinator in its existing Ray actor instead.
-No sample payloads cross this transport. It has a single bounded request loop.
+No sample payloads cross this transport. It has a single request loop.
 """
 
 import dataclasses
@@ -12,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from . import errors
-from .protocol import Lease, RecordSetRef, TaskSpec, bounded_metadata
+from .protocol import Lease, RecordSetRef, TaskSpec, encode
 
 METHODS = {
     "submit_tasks",
@@ -46,7 +46,6 @@ METHODS = {
 def serve(coordinator, address, *, token, ready=None):
     if not token:
         raise ValueError("A job-scoped RPC token is required")
-    limit = coordinator.limits.metadata_bytes
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -56,8 +55,8 @@ def serve(coordinator, address, *, token, ready=None):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= limit:
-                    raise errors.ResourceLimitExceeded("RPC metadata exceeds request limit")
+                if length <= 0:
+                    raise ValueError("RPC request must have a positive Content-Length")
                 request = json.loads(self.rfile.read(length))
                 method, args = request["method"], request["args"]
                 if method not in METHODS:
@@ -81,10 +80,10 @@ def serve(coordinator, address, *, token, ready=None):
                 result = getattr(coordinator, method)(**args)
                 if dataclasses.is_dataclass(result):
                     result = dataclasses.asdict(result)
-                response = bounded_metadata({"result": result}, limit + 1024)
+                response = encode({"result": result})
                 status = 200
             except (errors.QueueError, ValueError, KeyError, TypeError) as error:
-                response = bounded_metadata({"error": type(error).__name__, "message": str(error)}, limit)
+                response = encode({"error": type(error).__name__, "message": str(error)})
                 status = 409
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -123,7 +122,7 @@ class QueueClient:
                 args[key] = dataclasses.asdict(value)
             elif isinstance(value, (list, tuple)):
                 args[key] = [dataclasses.asdict(item) if dataclasses.is_dataclass(item) else item for item in value]
-        data = bounded_metadata({"method": method, "args": args}, self.metadata_bytes)
+        data = encode({"method": method, "args": args})
         request = Request(
             self.address,
             data=data,
@@ -137,9 +136,7 @@ class QueueClient:
         except HTTPError as error:
             response = error
         with response:
-            content = response.read(self.metadata_bytes + 1025)
-            if len(content) > self.metadata_bytes + 1024:
-                raise errors.ResourceLimitExceeded("RPC response exceeds metadata limit")
+            content = response.read()
             value = json.loads(content)
         if "error" in value:
             cls = getattr(errors, value["error"], errors.QueueError)

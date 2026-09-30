@@ -55,6 +55,60 @@ fn append_100_samples_one_file_and_read_old_extents() -> Result<()> {
     Ok(())
 }
 #[test]
+fn bad_dependency_header_identifies_the_actual_extent() -> Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+    let dir = tempfile::tempdir()?;
+    let mut store = Store::new(config(dir.path(), 1024 * 1024));
+    let groups = json!([{"records":[0],"dependencies":[]}]);
+    store.publish(
+        &groups,
+        vec![record("prefix", b"prefix", json!({}))],
+        "prefix",
+        &mut |_| Ok(()),
+    )?;
+    let dep = store.publish(
+        &groups,
+        vec![record("dep", b"dependency", json!({}))],
+        "dep",
+        &mut |_| Ok(()),
+    )?[0]
+        .clone();
+    store.seal(&mut |_| Ok(()))?;
+    let parent = store.publish(
+        &json!([{"records":[0],"dependencies":[dep]}]),
+        vec![record("parent", b"parent", json!({}))],
+        "parent",
+        &mut |_| Ok(()),
+    )?[0]
+        .clone();
+    let segment = &dep["manifest"]["segment"];
+    let path = segment["path"].as_str().unwrap();
+    let offset = segment["offset"].as_u64().unwrap();
+    assert!(offset > 0);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.path().join(path))?;
+    file.seek(SeekFrom::Start(offset))?;
+    file.write_all(&[0; 12])?;
+    file.sync_all()?;
+    let error = store.config.validate(&parent, None, None).unwrap_err();
+    assert_eq!(error.kind, "CorruptData");
+    assert!(error.message.starts_with("Invalid segment header;"));
+    assert!(error.message.contains(path));
+    assert!(error.message.contains(&format!("offset={offset},")));
+    assert!(
+        error
+            .message
+            .contains("observed_header=000000000000000000000000")
+    );
+    assert!(
+        !error
+            .message
+            .contains(parent["manifest"]["segment"]["path"].as_str().unwrap())
+    );
+    Ok(())
+}
+#[test]
 fn completion_replays_atomically_and_old_leases_are_fenced() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let cfg = config(dir.path(), 1024 * 1024);

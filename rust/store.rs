@@ -1,3 +1,4 @@
+use crate::payload::InputRecord;
 use crate::{Error, Fault, Result, array, bytes, digest, fail, field, hash, number, uid};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -9,8 +10,7 @@ use std::{
     time::Instant,
 };
 
-pub const MAX_INDEX: usize = 8 * 1024 * 1024;
-pub const MAX_ENVELOPE: usize = 64 * 1024;
+// Kept as a batching hint for existing Python adapters, not an admission cap.
 pub const MAX_RECORDS: usize = 10000;
 const HEADER: &[u8] = b"SLMSEG01\x01\0\0\0";
 const END: &[u8] = b"SLMEND01";
@@ -107,7 +107,7 @@ impl Config {
         max_buffer: u64,
         target: u64,
     ) -> Result<Self> {
-        if run.is_empty() || max_record == 0 || max_record > max_buffer {
+        if run.is_empty() || max_record == 0 || max_buffer == 0 {
             return fail("ValueError", "Invalid run or memory limits");
         }
         let root = Path::new(root).to_path_buf();
@@ -230,17 +230,29 @@ impl Config {
             || offset.checked_add(size).is_none_or(|n| n > physical)
             || (version == 1 && (offset != 0 || size != physical))
         {
-            return fail("CorruptData", "Segment size mismatch");
+            return fail(
+                "CorruptData",
+                format!(
+                    "Segment size mismatch; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}"
+                ),
+            );
         }
         f.seek(SeekFrom::Start(offset))?;
-        if exact(&mut f, 12)? != HEADER {
-            return fail("CorruptData", "Invalid segment header");
+        let header = exact(&mut f, 12)?;
+        if header != HEADER {
+            return fail(
+                "CorruptData",
+                format!(
+                    "Invalid segment header; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}, observed_header={}, expected_header={}",
+                    hex(&header),
+                    hex(HEADER)
+                ),
+            );
         }
         f.seek(SeekFrom::Start(offset + size - TRAILER))?;
         let footer = exact(&mut f, TRAILER as usize)?;
         let length = u64::from_le_bytes(footer[..8].try_into().unwrap());
-        if length > MAX_INDEX as u64
-            || length > size - 12 - TRAILER
+        if length > size - 12 - TRAILER
             || &footer[72..] != END
             || hex(&footer[40..72]) != r["checksum"]
         {
@@ -260,7 +272,7 @@ impl Config {
             return fail("InvalidReference", "Segment identity mismatch");
         }
         let entries = array(&index, "records")?;
-        if entries.is_empty() || entries.len() > MAX_RECORDS {
+        if entries.is_empty() {
             return fail("CorruptData", "Invalid record count");
         }
         let mut expected = 12u64;
@@ -270,12 +282,12 @@ impl Config {
             if env["version"] != 1 || !self.codecs.contains(field(env, "codec")?) {
                 return fail("UnsupportedSchema", "Unsupported record codec/schema");
             }
-            if number(entry, "offset") != expected || n > self.max_record {
+            if number(entry, "offset") != expected {
                 return fail("CorruptData", "Record index offset/length mismatch");
             }
             let meta = bytes(env)?;
-            if meta.len() > MAX_ENVELOPE {
-                return fail("CorruptData", "Record envelope too large");
+            if u32::try_from(meta.len()).is_err() {
+                return fail("CorruptData", "Record envelope exceeds u32 frame length");
             }
             expected = expected
                 .checked_add(12 + meta.len() as u64 + n)
@@ -509,13 +521,10 @@ impl Reader {
         if seen.contains(&key) {
             return Ok(vec![]);
         }
-        if seen.len() >= MAX_RECORDS {
-            return fail("ResourceLimitExceeded", "Dependency graph too large");
-        }
         seen.insert(key);
         let manifest = self.manifest(r)?;
         let refs = array(&manifest, "records")?;
-        if refs.len() as u64 != number(r, "records") || refs.len() > MAX_RECORDS {
+        if refs.len() as u64 != number(r, "records") {
             return fail("InvalidReference", "Record count mismatch");
         }
         let mut unique = HashSet::new();
@@ -590,25 +599,42 @@ impl Store {
         self.closed = true;
         Ok(())
     }
-    fn envelope(&self, r: &Record) -> Result<Value> {
+    fn chunk_bytes(&self) -> usize {
+        (self.config.max_buffer / 2).clamp(1, 4 * 1024 * 1024) as usize
+    }
+    fn envelope(&self, r: &InputRecord) -> Result<Value> {
         let mut e = r.metadata.clone();
         if field(&e, "record_id")?.is_empty() || !self.config.codecs.contains(field(&e, "codec")?) {
             return fail("UnsupportedSchema", "Unsupported record identity or codec");
         }
-        if r.payload.len() as u64 > self.config.max_record || e["tokens"].as_u64().is_none() {
-            return fail("ResourceLimitExceeded", "Record exceeds size/token bounds");
+        if e["tokens"].as_u64().is_none() {
+            return fail("ValueError", "Record tokens must be a nonnegative u64");
         }
         e["length"] = json!(r.payload.len());
-        e["checksum"] = json!(hash(&r.payload));
+        let mut hash = Sha256::new();
+        r.payload.chunks(self.chunk_bytes(), &mut |chunk| {
+            hash.update(chunk);
+            Ok(())
+        })?;
+        e["checksum"] = json!(hex(&hash.finalize()));
         e["version"] = json!(1);
-        if bytes(&e)?.len() > MAX_ENVELOPE {
-            return fail("ResourceLimitExceeded", "Record envelope too large");
+        if u32::try_from(bytes(&e)?.len()).is_err() {
+            return fail("ValueError", "Record envelope exceeds u32 frame length");
         }
         Ok(e)
     }
     pub fn write(
         &mut self,
         records: &[Record],
+        id: &str,
+        fault: &mut Fault<'_>,
+    ) -> Result<Vec<Value>> {
+        let inputs: Vec<_> = records.iter().cloned().map(InputRecord::from).collect();
+        self.write_inputs(&inputs, id, fault)
+    }
+    pub fn write_inputs(
+        &mut self,
+        records: &[InputRecord],
         id: &str,
         fault: &mut Fault<'_>,
     ) -> Result<Vec<Value>> {
@@ -655,7 +681,7 @@ impl Store {
     }
     fn write_prepared(
         &mut self,
-        records: &[Record],
+        records: &[InputRecord],
         envs: &[Value],
         id: &str,
         fault: &mut Fault<'_>,
@@ -667,23 +693,14 @@ impl Store {
         if id.is_empty() || id.len() > 1024 {
             return fail("ValueError", "Invalid submission ID");
         }
-        if records.is_empty() || records.len() > MAX_RECORDS {
-            return fail(
-                "ResourceLimitExceeded",
-                "Record count outside segment bounds",
-            );
+        if records.is_empty() {
+            return fail("ValueError", "Cannot write an empty segment");
         }
         let total: u64 = records
             .iter()
             .zip(envs)
             .map(|(r, e)| r.payload.len() as u64 + bytes(e).unwrap().len() as u64 + 12)
             .sum();
-        if total > self.config.max_buffer {
-            return fail(
-                "ResourceLimitExceeded",
-                "Microbatch exceeds writer memory budget",
-            );
-        }
         let mut ids = HashSet::new();
         for e in envs {
             if !ids.insert(field(e, "record_id")?) {
@@ -776,16 +793,21 @@ impl Store {
             frame.extend_from_slice(&(record.payload.len() as u64).to_le_bytes());
             write_hash(&mut f, &mut h, &frame)?;
             write_hash(&mut f, &mut h, &meta)?;
-            write_hash(&mut f, &mut h, &record.payload)?;
+            let mut payload_hash = Sha256::new();
+            record.payload.chunks(self.chunk_bytes(), &mut |chunk| {
+                payload_hash.update(chunk);
+                write_hash(&mut f, &mut h, chunk)?;
+                fault("after_payload_chunk")
+            })?;
+            if hex(&payload_hash.finalize()) != field(env, "checksum")? {
+                return fail("ValueError", "Input payload changed during publication");
+            }
             entries.push(json!({"offset":pos,"envelope":env}));
             fault("after_record")?;
         }
         let index = bytes(
             &json!({"version":1,"run_id":self.config.run_id,"segment_id":segment,"records":entries}),
         )?;
-        if index.len() > MAX_INDEX {
-            return fail("ResourceLimitExceeded", "Segment index too large");
-        }
         write_hash(&mut f, &mut h, &index)?;
         fault("before_footer")?;
         let checksum = h.finalize();
@@ -885,6 +907,21 @@ impl Store {
         id: &str,
         fault: &mut Fault<'_>,
     ) -> Result<Vec<Value>> {
+        self.publish_inputs(
+            groups,
+            records.into_iter().map(InputRecord::from).collect(),
+            id,
+            fault,
+        )
+    }
+
+    pub fn publish_inputs(
+        &mut self,
+        groups: &Value,
+        records: Vec<InputRecord>,
+        id: &str,
+        fault: &mut Fault<'_>,
+    ) -> Result<Vec<Value>> {
         let groups = groups
             .as_array()
             .ok_or_else(|| Error::new("ValueError", "Expected publication array"))?;
@@ -941,13 +978,11 @@ impl Store {
             let payload = bytes(
                 &json!({"version":2,"records":ordinals,"dependencies":deps,"digest":logical}),
             )?;
-            if payload.len() > MAX_INDEX {
-                return fail("ResourceLimitExceeded", "Manifest too large");
-            }
             let r = Record {
                 metadata: json!({"record_id":format!("manifest:{}:{logical}",members.len()),"codec":"record-set.v2","metadata":{},"tokens":0}),
                 payload: payload.into(),
             };
+            let r = InputRecord::from(r);
             envs.push(self.envelope(&r)?);
             members.push(r);
         }

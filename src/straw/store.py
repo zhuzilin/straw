@@ -79,6 +79,12 @@ class _ReadSession(_RecordReader):
 
 
 class SharedFilesystemStore(_RecordReader):
+    """Immutable payload storage with bounded copy scratch.
+
+    max_record_bytes is retained for API compatibility and is not enforced.
+    max_buffer_bytes controls temporary copy memory, never logical record size.
+    """
+
     def __init__(
         self,
         root,
@@ -86,7 +92,7 @@ class SharedFilesystemStore(_RecordReader):
         *,
         backend=None,
         codecs=("bytes.v1", "json.v1"),
-        max_record_bytes=256 * 1024**2,
+        max_record_bytes=16 * 1024**3,
         max_buffer_bytes=512 * 1024**2,
         segment_target_bytes=1024**3,
         online_gc=False,

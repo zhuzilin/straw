@@ -2,7 +2,8 @@
 //! and filesystem operations execute in Rust with the GIL released.
 use crate::coordinator::Coordinator;
 use crate::journal::Journal;
-use crate::store::{Config, Reader, Record, Store};
+use crate::payload::{InputRecord, Payload};
+use crate::store::{Config, Reader, Store};
 use crate::{Error, Fault, Result};
 use pyo3::{
     buffer::PyBuffer,
@@ -13,7 +14,7 @@ use pyo3::{
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 fn parse(text: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
@@ -77,53 +78,88 @@ fn run<T: Send>(
         Err(error) => Err(original.unwrap_or_else(|| exception(py, error))),
     }
 }
+// PyBuffer pins the exporting allocation. Only copy its cells while holding the
+// GIL, then release the GIL for checksumming and file I/O. Never construct a Rust
+// shared slice over mutable Python memory across a GIL release.
+struct PythonPayload(PyBuffer<u8>);
+impl PythonPayload {
+    fn copy_chunk(&self, start: usize, size: usize) -> Result<Vec<u8>> {
+        Python::with_gil(|py| {
+            let source = self
+                .0
+                .as_slice(py)
+                .ok_or_else(|| Error::new("ValueError", "Input buffer must be C-contiguous"))?;
+            Ok(source[start..(start + size).min(self.len())]
+                .iter()
+                .map(|cell| cell.get())
+                .collect())
+        })
+    }
+}
+impl Payload for PythonPayload {
+    fn len(&self) -> usize {
+        self.0.len_bytes()
+    }
+    fn chunks(&self, size: usize, visit: &mut dyn FnMut(&[u8]) -> Result<()>) -> Result<()> {
+        if self.len() <= size.saturating_mul(2) || size < 4096 {
+            for start in (0..self.len()).step_by(size) {
+                visit(&self.copy_chunk(start, size)?)?;
+            }
+            return Ok(());
+        }
+        // A rendezvous channel permits one producer buffer and one consumer
+        // buffer. Copy the next chunk while the current one is hashed/written.
+        // The consumer alone appends, so byte order and publication stay atomic.
+        std::thread::scope(|scope| {
+            let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+            let producer = scope.spawn(move || -> Result<()> {
+                for start in (0..self.len()).step_by(size) {
+                    if sender.send(self.copy_chunk(start, size)?).is_err() {
+                        break;
+                    }
+                }
+                Ok(())
+            });
+            let result = (|| {
+                for chunk in &receiver {
+                    visit(&chunk)?;
+                }
+                Ok(())
+            })();
+            drop(receiver); // Unblock producer on I/O error or fault injection.
+            let copied = producer
+                .join()
+                .map_err(|_| Error::new("RuntimeError", "Payload copy worker panicked"))?;
+            result.and(copied)
+        })
+    }
+}
+
 fn records(
     py: Python<'_>,
-    config: &Config,
+    _config: &Config,
     metadata: &str,
     payloads: Vec<Py<PyAny>>,
-) -> PyResult<Vec<Record>> {
+) -> PyResult<Vec<InputRecord>> {
     let entries: Vec<Value> =
         serde_json::from_str(metadata).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     if entries.len() != payloads.len() {
         return Err(PyRuntimeError::new_err("Metadata/payload count mismatch"));
     }
-    if entries.len() > crate::store::MAX_RECORDS {
-        return Err(exception(
-            py,
-            Error::new("ResourceLimitExceeded", "Too many input records"),
-        ));
-    }
-    let buffers = payloads
-        .iter()
-        .map(|payload| PyBuffer::<u8>::get(payload.bind(py)))
-        .collect::<PyResult<Vec<_>>>()?;
-    let mut total = 0u64;
-    for buffer in &buffers {
-        let n = buffer.len_bytes() as u64;
-        total = total.checked_add(n).ok_or_else(|| {
-            exception(
-                py,
-                Error::new("ResourceLimitExceeded", "Buffer size overflow"),
-            )
-        })?;
-        if !buffer.is_c_contiguous() || n > config.max_record || total > config.max_buffer {
-            return Err(exception(
-                py,
-                Error::new(
-                    "ResourceLimitExceeded",
-                    "Input buffers exceed contiguous writer budget",
-                ),
-            ));
-        }
-    }
     entries
         .into_iter()
-        .zip(buffers)
-        .map(|(metadata, buffer)| {
-            Ok(Record {
+        .zip(payloads)
+        .map(|(metadata, payload)| {
+            let buffer = PyBuffer::<u8>::get(payload.bind(py))?;
+            if !buffer.is_c_contiguous() {
+                return Err(exception(
+                    py,
+                    Error::new("ValueError", "Input buffer must be C-contiguous"),
+                ));
+            }
+            Ok(InputRecord {
                 metadata,
-                payload: buffer.to_vec(py)?.into(),
+                payload: Arc::new(PythonPayload(buffer)),
             })
         })
         .collect()
@@ -263,7 +299,7 @@ impl NativeStore {
             let mut store = self.writer.try_lock().map_err(|_| {
                 Error::new("ResourceLimitExceeded", "Writer has an in-flight batch")
             })?;
-            Ok(serde_json::to_string(&store.write(
+            Ok(serde_json::to_string(&store.write_inputs(
                 &records,
                 submission_id,
                 fault,
@@ -285,7 +321,7 @@ impl NativeStore {
             let mut store = self.writer.try_lock().map_err(|_| {
                 Error::new("ResourceLimitExceeded", "Writer has an in-flight batch")
             })?;
-            Ok(serde_json::to_string(&store.publish(
+            Ok(serde_json::to_string(&store.publish_inputs(
                 &groups,
                 records,
                 submission_id,

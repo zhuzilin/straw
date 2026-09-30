@@ -123,7 +123,7 @@ def test_external_manifest_uses_native_float_canonicalization(tmp_path):
     assert list(store.read(subset))[0].metadata == {"p": 1e-7, "large": 1e20}
 
 
-def test_acquire_pages_large_pending_population_by_control_budget(tmp_path):
+def test_acquire_obeys_requested_page_without_legacy_metadata_budget(tmp_path):
     from straw import TaskSpec
     from straw.coordinator import Coordinator
     from straw.protocol import Limits
@@ -137,10 +137,8 @@ def test_acquire_pages_large_pending_population_by_control_budget(tmp_path):
         for i in range(32):
             q.submit_tasks(f"submit-{i}", [TaskSpec(str(i), metadata={"description": "x" * 1024})])
         first = q.acquire("worker", max_tasks=32)
-        assert 0 < len(first.assignments) < 32
-        second = q.acquire("worker", max_tasks=32)
-        assert second.assignments
-        assert {a.task.task_id for a in first.assignments}.isdisjoint(a.task.task_id for a in second.assignments)
+        assert len(first.assignments) == 32
+        assert q.acquire("worker", max_tasks=32).status == "empty"
     finally:
         q.close()
 

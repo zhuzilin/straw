@@ -9,7 +9,6 @@ use std::{
 };
 const MAGIC: &[u8] = b"SLMTXN01";
 const END: &[u8] = b"SLMTEND1";
-const MAX_BLOCK: usize = 8 * 1024 * 1024;
 pub struct Journal {
     pub path: PathBuf,
     file: Option<File>,
@@ -89,10 +88,13 @@ impl Journal {
             }
             let sequence = u64::from_le_bytes(header[8..16].try_into().unwrap());
             let length = u64::from_le_bytes(header[16..24].try_into().unwrap());
-            if &header[..8] != MAGIC || sequence != self.sequence || length > MAX_BLOCK as u64 {
+            if &header[..8] != MAGIC || sequence != self.sequence {
                 return fail("CorruptData", "Journal sequence, magic or length mismatch");
             }
-            if remaining < 56 + length + 40 {
+            let frame_size = length
+                .checked_add(96)
+                .ok_or_else(|| Error::new("CorruptData", "Journal frame length overflow"))?;
+            if remaining < frame_size {
                 break;
             }
             let mut body = vec![0; (length + 40) as usize];
@@ -132,9 +134,6 @@ impl Journal {
             );
         }
         let payload = bytes(events)?;
-        if payload.len() > MAX_BLOCK {
-            return fail("ResourceLimitExceeded", "Journal transaction too large");
-        }
         let mut prefix = MAGIC.to_vec();
         prefix.extend_from_slice(&self.sequence.to_le_bytes());
         prefix.extend_from_slice(&(payload.len() as u64).to_le_bytes());

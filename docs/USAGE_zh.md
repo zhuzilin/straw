@@ -13,14 +13,20 @@ store = SharedFilesystemStore(
     "/shared/new-job", "new-job",
     online_gc=True,
     segment_target_bytes=1024**3,      # Rotation target, not a hard file-size limit.
-    max_record_bytes=256 * 1024**2,
-    max_buffer_bytes=512 * 1024**2,
+    max_record_bytes=16 * 1024**3,
+    max_buffer_bytes=16 * 1024**2,
 )
 ```
 
 每个新任务使用唯一目录/run ID；同一个池的参与者共享目录和 run ID。跨多次 publication 复用 writer；进程 fork 后创建新的 store/coordinator 对象。`close()` 封存 writer；`seal()` 封存当前 pack，后续仍可向新 pack 写入。Store 和 coordinator 都支持 `with`。
 
 应从创建池时就启用在线 GC。不能把已有但未跟踪所有权的队列直接切换为 GC 模式，并假定旧引用已经获得保护。GC 是可选能力；catalog 一旦存在，所有参与者都必须遵循它的规则。这些 API 不会创建调度器，也不会启动自动 GC 线程。
+
+## 大记录与有界写入缓冲区
+
+`max_record_bytes` 只保留为兼容参数，不再限制单条记录。`max_buffer_bytes` 仍限制 native writer 临时复制的 payload 内存，不限制整个 record 或 publication。每块最多复制 4 MiB，大记录采用双缓冲复制/I/O 流水线。调用方不需要自行拆分 sample。元数据/索引、调用方已有输入、Python 序列化和整条读回不包含在 scratch 预算内；记录数、依赖数、元数据和索引不再有固定容量配额。
+
+发布返回前不要修改输入 buffer。写入时会再次校验 payload，检测到变化会在提交前拒绝。分块 I/O 保持原有 record 格式及张量切片 API，不会暴露部分记录，也不改变持久化、重试、所有权和 GC 顺序。pack 大小是软轮转目标，大 record/publication 可以超过目标。旧文件仍使用其中保存的 checksum 分块大小；reader 同样不再受旧 record 大小参数限制。
 
 ## 进程与线程并发
 
@@ -122,7 +128,9 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 
 通过 `heartbeat` 续租。用 `save_task_progress`/`save_task_progress_many` 在保留 lease 的同时持久化中间输入；`yield_task` 或 `release_tasks` 把未完成任务退回队列，不消耗失败重试预算。`fail_task` 与超时会消耗尝试预算。只有全部字段都对应同一个完整、一致的前缀，才能发布 continuation。
 
-`Limits` 限制 pending/in-flight 任务、已接收数据、ready batch 和控制元数据。这些是保守的逻辑预算，不是物理磁盘配额。恢复队列时保持 limits、codec、lease 时长、run ID 和 queue ID 一致。协议 v1 的默认 queue ID 是 `rollout`，应用可显式使用 `work` 等名称。
+`Limits` 的字段仅用于兼容旧调用方及队列恢复身份，不再限制 pending/in-flight 任务、结果字节/token/记录数、ready batch 或控制消息。应用通过 acquire 请求数量和自己的调度器控制并发，原有使用量统计保留。移除了单结果 4 GiB、累计 64 GiB、1 亿 token、1 万记录/依赖节点、64 KiB envelope、256 KiB 控制元数据、8 MiB 索引/manifest/事务日志以及 64 MiB catalog 事务等配额。恢复旧队列仍应传入与原先相同的 Limits 字段、codec、lease 时长、run ID 和 queue ID。
+
+保留真实格式和正确性检查：u32 envelope 长度、u64 计数、文件边界与校验和、task/attempt 归属、lease、失败重试数及同一 writer 不可重入。移除逻辑配额不代表无限内存/磁盘；元数据仍需占用内存，payload 写入继续使用有界 scratch。
 
 ## 生命周期与在线 GC
 
