@@ -52,6 +52,16 @@ an explicit smaller record limit must raise it to read larger records.
 
 ## Concurrency: processes and threads
 
+Published extents are immutable, but a shared-filesystem reader can briefly see
+the new file length before the appended header bytes. The native reader closes
+and reopens the file on a short extent or an all-zero 12-byte header, with delays
+of 100, 250, 500, 1000 and 2000 ms. It still validates the header, index and record
+data normally. Persistent failures remain errors; nonzero bad headers and
+checksum failures are not retried by this visibility handling. This applies to
+store and read-session entry points, including dependency validation. Successful
+reads incur no extra I/O, and applications should not stack another retry loop
+around the resulting corruption error.
+
 The API is synchronous; straw does not launch an I/O process pool. Applications
 can read/write from multiple processes and machines using the same pool. Each
 writer needs its own store instance and pack stream. Keep these instances alive

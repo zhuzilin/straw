@@ -30,6 +30,8 @@ store = SharedFilesystemStore(
 
 ## 进程与线程并发
 
+已发布的 extent 不可变，但共享文件系统的 reader 可能短暂先看到增长后的文件大小、后看到追加的文件头。对于文件长度尚不足或 12 字节文件头全零的情况，native reader 会关闭文件，依次等待 100、250、500、1000、2000 ms 后重新打开，再进行原有校验。持续失败仍报错；非零的坏文件头和 checksum 错误不走此可见性重试。该处理覆盖 store、read session 和依赖校验等入口，正常读取不增加 I/O，应用无需再叠加另一层 CorruptData 重试。
+
 API 是同步的，straw 不会启动 I/O 进程池。应用可从多个进程、多台机器访问同一个池。每个 writer 需要独立的 store 实例和 pack 写入流，并在多次发布之间复用实例。不要将可变 store/coordinator 对象跨 fork 继承后继续使用。
 
 Rust 在 native I/O、checksum 和日志操作期间释放 GIL，Python 线程可并行执行这些操作。Python 序列化、张量转换和输入缓冲区复制仍有开销。每个 store 同时只允许一个写操作；同实例的重叠写入会报 `ResourceLimitExceeded`，因此需由调用方串行化，或为每个 writer 创建独立实例。引用受到保护期间，reader 可以并发读取。

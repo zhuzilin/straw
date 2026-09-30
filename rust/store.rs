@@ -7,7 +7,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 // Kept as a batching hint for existing Python adapters, not an admission cap.
@@ -15,6 +15,10 @@ pub const MAX_RECORDS: usize = 10000;
 const HEADER: &[u8] = b"SLMSEG01\x01\0\0\0";
 const END: &[u8] = b"SLMEND01";
 const TRAILER: u64 = 80;
+// Shared-filesystem clients can observe an appended extent's new file length
+// before its bytes become visible. Reopen only on this narrow visibility
+// failure; never accept a bad header or suppress checksum/identity failures.
+const EXTENT_VISIBILITY_DELAYS_MS: [u64; 5] = [100, 250, 500, 1000, 2000];
 #[derive(Clone)]
 pub struct Record {
     pub metadata: Value,
@@ -224,31 +228,7 @@ impl Config {
         {
             return fail("InvalidReference", "Wrong run or uncommitted extent");
         }
-        let mut f = self.open(path)?;
-        let physical = f.metadata()?.len();
-        if size < 12 + TRAILER
-            || offset.checked_add(size).is_none_or(|n| n > physical)
-            || (version == 1 && (offset != 0 || size != physical))
-        {
-            return fail(
-                "CorruptData",
-                format!(
-                    "Segment size mismatch; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}"
-                ),
-            );
-        }
-        f.seek(SeekFrom::Start(offset))?;
-        let header = exact(&mut f, 12)?;
-        if header != HEADER {
-            return fail(
-                "CorruptData",
-                format!(
-                    "Invalid segment header; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}, observed_header={}, expected_header={}",
-                    hex(&header),
-                    hex(HEADER)
-                ),
-            );
-        }
+        let mut f = self.open_visible_extent(path, offset, size, version)?;
         f.seek(SeekFrom::Start(offset + size - TRAILER))?;
         let footer = exact(&mut f, TRAILER as usize)?;
         let length = u64::from_le_bytes(footer[..8].try_into().unwrap());
@@ -312,6 +292,79 @@ impl Config {
             }
         }
         Ok(index)
+    }
+    fn open_visible_extent(
+        &self,
+        path: &str,
+        offset: u64,
+        size: u64,
+        version: u64,
+    ) -> Result<File> {
+        let end = offset.checked_add(size).ok_or_else(|| {
+            Error::new(
+                "CorruptData",
+                "Segment size mismatch: extent offset/size overflow",
+            )
+        })?;
+        if size < 12 + TRAILER || (version == 1 && offset != 0) {
+            return fail(
+                "CorruptData",
+                "Segment size mismatch: invalid extent size/offset",
+            );
+        }
+        let mut attempt = 0;
+        loop {
+            let mut f = self.open(path)?;
+            let physical = f.metadata()?.len();
+            let (error, may_be_stale) = if end > physical || (version == 1 && size != physical) {
+                (
+                    Error::new(
+                        "CorruptData",
+                        format!(
+                            "Segment size mismatch; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}"
+                        ),
+                    ),
+                    end > physical,
+                )
+            } else {
+                f.seek(SeekFrom::Start(offset))?;
+                let header = exact(&mut f, 12)?;
+                if header == HEADER {
+                    if attempt > 0 {
+                        eprintln!(
+                            "Straw extent visible after {attempt} retries; path={path:?}, offset={offset}"
+                        );
+                    }
+                    return Ok(f);
+                }
+                let all_zero = header.iter().all(|b| *b == 0);
+                (
+                    Error::new(
+                        "CorruptData",
+                        format!(
+                            "Invalid segment header; path={path:?}, offset={offset}, extent_size={size}, physical_size={physical}, observed_header={}, expected_header={}",
+                            hex(&header),
+                            hex(HEADER)
+                        ),
+                    ),
+                    all_zero,
+                )
+            };
+            // Close before sleeping so the next attempt gets a fresh open and
+            // fresh metadata on the reader's client. No payload reread/scan.
+            drop(f);
+            if !may_be_stale || attempt == EXTENT_VISIBILITY_DELAYS_MS.len() {
+                return Err(error);
+            }
+            let delay = EXTENT_VISIBILITY_DELAYS_MS[attempt];
+            eprintln!(
+                "Straw extent visibility retry {}/{} after {delay}ms: {error}",
+                attempt + 1,
+                EXTENT_VISIBILITY_DELAYS_MS.len()
+            );
+            std::thread::sleep(Duration::from_millis(delay));
+            attempt += 1;
+        }
     }
     pub fn read(&self, r: &Value) -> Result<Record> {
         let (f, env) = self.frame(r)?;
