@@ -139,11 +139,11 @@ and [publishing guide](https://docs.pypi.org/trusted-publishers/using-a-publishe
 
 After committing the release changes, ensure that `pyproject.toml`, `Cargo.toml`
 and the `straw` entry in `Cargo.lock` share the release version. For example, for
-version `0.1.1`, create and push a new tag on that commit:
+version `0.1.2`, create and push a new tag on that commit:
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 The first successful upload creates the PyPI project; registering a pending

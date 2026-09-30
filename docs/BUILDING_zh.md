@@ -90,11 +90,11 @@ python -m pip wheel --no-deps dist/straw_queue-*.tar.gz --wheel-dir rebuilt
 
 Workflow filename 只填 `wheels.yml`，不带 `.github/workflows/`。发布前，将该文件提交并推送到配置的仓库。发布 job 通过 GitHub OIDC 和 `id-token: write` 认证，无需配置 PyPI API token 或 GitHub secret。参见 [PyPI 配置指南](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)和[发布指南](https://docs.pypi.org/trusted-publishers/using-a-publisher/)。
 
-提交发布改动后，确认 `pyproject.toml`、`Cargo.toml` 和 `Cargo.lock` 中 `straw` 条目的版本一致。例如发布 `0.1.1` 时，在该 commit 上创建并推送新的 tag：
+提交发布改动后，确认 `pyproject.toml`、`Cargo.toml` 和 `Cargo.lock` 中 `straw` 条目的版本一致。例如发布 `0.1.2` 时，在该 commit 上创建并推送新的 tag：
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 首次上传成功时才创建 PyPI 项目；仅登记 pending publisher 不会保留包名。后续版本使用新的匹配版本号和 tag。已有 tag 不会包含之后的工作区改动；发布前应检查其指向，不要覆盖已发布版本。构建或测试失败时，应先修复；失败的 job 会阻止发布 job 运行。

@@ -2,6 +2,14 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.2
+
+- 大记录的 payload 通过有界 native 写入缓冲区分块写入。记录和批量发布不再需要适配 writer 的临时缓冲区；原有 packed record 格式和张量读取方式不变。
+- 移除记录数、依赖数、结果大小、队列任务、控制消息及元数据的固定逻辑配额。旧的限制参数继续保留，以兼容 API 和队列身份；`max_buffer_bytes` 仍约束临时 payload 复制。
+- 共享文件系统上，已发布 extent 的文件长度可能先于文件头内容可见。reader 遇到这种短暂情况会延迟并重新打开文件；持续失败、非零坏文件头和 checksum 错误仍会报错。
+
+已有存储数据和调用方保持兼容。上述写入和读取行为需要 0.1.2；packed record 和 WAL 格式不变。
+
 ## 0.1.1
 
 - 持久化任务调度：按 `TaskSpec.priority` 从高到低、`scheduling_key` 从低到高、再按 FIFO 顺序领取任务。两个字段默认均为 0，接受有符号 64 位整数。Rust pending 索引无需读取载荷即可选择任务，WAL 恢复时重建调度顺序。

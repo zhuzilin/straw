@@ -2,6 +2,23 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.2
+
+- Stream large record payloads through bounded native write buffers. Records and
+  publications no longer need to fit the writer's scratch buffer; existing
+  packed-record framing and tensor reads are unchanged.
+- Remove fixed logical quotas on record and dependency counts, result sizes,
+  queue work, control messages, and metadata. Legacy limit arguments remain
+  accepted for API and queue-identity compatibility; `max_buffer_bytes` still
+  bounds temporary payload copies.
+- Retry transient shared-filesystem visibility gaps when a published extent's
+  length is visible before its header bytes. The reader reopens the file after
+  short delays; persistent failures, nonzero bad headers, and checksum errors
+  remain errors.
+
+Existing stored data and callers remain compatible. These write and read
+behaviors require 0.1.2; packed-record and WAL formats are unchanged.
+
 ## 0.1.1
 
 - Persistent task scheduling with `TaskSpec.priority` (higher first),
