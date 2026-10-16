@@ -2,6 +2,16 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.3
+
+- Retry temporarily zero-filled bytes anywhere in a published extent's header,
+  including partial and noncontiguous visibility gaps. Previously, only an
+  entirely zero-filled header triggered this retry. The retry limit and checksum
+  validation remain unchanged; other incorrect header bytes fail immediately.
+
+Existing callers and stored data remain compatible. Packed-record and WAL
+formats are unchanged.
+
 ## 0.1.2
 
 - Stream large record payloads through bounded native write buffers. Records and

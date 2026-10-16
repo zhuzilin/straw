@@ -332,12 +332,18 @@ impl Config {
                 if header == HEADER {
                     if attempt > 0 {
                         eprintln!(
-                            "Straw extent visible after {attempt} retries; path={path:?}, offset={offset}"
+                            "straw extent visible after {attempt} retries; path={path:?}, offset={offset}"
                         );
                     }
                     return Ok(f);
                 }
-                let all_zero = header.iter().all(|b| *b == 0);
+                // A header spanning cached pages can be only partly visible:
+                // missing bytes read as zero while the other bytes already match.
+                // Reopen within the same bounded window, then validate normally.
+                let zero_filled = header
+                    .iter()
+                    .zip(HEADER)
+                    .all(|(observed, expected)| *observed == 0 || observed == expected);
                 (
                     Error::new(
                         "CorruptData",
@@ -347,7 +353,7 @@ impl Config {
                             hex(HEADER)
                         ),
                     ),
-                    all_zero,
+                    zero_filled,
                 )
             };
             // Close before sleeping so the next attempt gets a fresh open and
@@ -358,7 +364,7 @@ impl Config {
             }
             let delay = EXTENT_VISIBILITY_DELAYS_MS[attempt];
             eprintln!(
-                "Straw extent visibility retry {}/{} after {delay}ms: {error}",
+                "straw extent visibility retry {}/{} after {delay}ms: {error}",
                 attempt + 1,
                 EXTENT_VISIBILITY_DELAYS_MS.len()
             );
