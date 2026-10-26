@@ -50,8 +50,9 @@ def tensor_record(value, identity, *, kind=None):
         raise UnsupportedSchema(f"Unsupported tensor dtype: {dtype}")
     payload = memoryview(value.reshape(-1).view(torch.uint8).numpy()).cast("B") if value.numel() else memoryview(b"")
     chunk_bytes = CHUNK_BYTES
-    while (len(payload) + chunk_bytes - 1) // chunk_bytes > 512:
-        chunk_bytes *= 2
+    # Keep small-row authentication cost independent of tensor size. The old
+    # 512-digest budget predated removal of envelope/index metadata quotas.
+    # Readers continue to honor each existing record's encoded chunk size.
     chunks = [hashlib.sha256(payload[i : i + chunk_bytes]).hexdigest() for i in range(0, len(payload), chunk_bytes)]
     metadata = {
         "shape": list(value.shape),
@@ -235,6 +236,13 @@ class TensorRef:
         return publish_tensors(store, {self.kind or "tensor": value}, submission_id=submission_id)[0]
 
     def _bytes(self, start, stop, *, reader=None):
+        if (
+            type(self.nbytes) is not int
+            or self.nbytes < 0
+            or any(type(n) is not int or n < 0 for n in self.shape)
+            or math.prod(self.shape) * torch.empty((), dtype=self.torch_dtype).element_size() != self.nbytes
+        ):
+            raise CorruptData("Invalid typed tensor shape or byte length")
         if reader is not None and not self.shares_storage(reader):
             raise InvalidReference("Tensor reader belongs to a different storage root or run")
         store = (
@@ -248,7 +256,9 @@ class TensorRef:
                 max_buffer_bytes=MAX_PUBLICATION_BYTES,
             )
         )
-        envelope, payload = store.read_tensor_range(self.record_ref, start, stop)
+        envelope, payload = store.read_tensor_range(
+            self.record_ref, start, stop, expected={"shape": self.shape, "dtype": self.dtype, "length": self.nbytes}
+        )
         metadata = envelope["metadata"]
         if (
             envelope["codec"] != "tensor.v1"
@@ -281,6 +291,7 @@ class TensorRef:
         start, stop, _ = rows.indices(len(self))
         shape = (max(0, stop - start), *self.shape[1:])
         if stop <= start or not self.nbytes:
+            self._bytes(0, 0)
             return torch.empty(shape, dtype=self.torch_dtype)
         row_bytes = math.prod(self.shape[1:]) * torch.empty((), dtype=self.torch_dtype).element_size()
         return torch.frombuffer(self._bytes(start * row_bytes, stop * row_bytes), dtype=self.torch_dtype).reshape(

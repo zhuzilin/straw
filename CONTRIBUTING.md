@@ -13,8 +13,9 @@ cargo fmt --check
 cargo clippy --all-targets --features python -- -D warnings
 cargo test --locked
 python -m pytest
-python verification/ownership_model.py
-python verification/crash_campaign.py --output /tmp/straw-crashes.json
+python verification/runners/check_tla.py  # Java 17+
+python verification/protocol/checks/ownership_model.py
+python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
 
 See [building](docs/BUILDING.md) for binary wheels and
@@ -40,3 +41,12 @@ The project uses the [MIT license](LICENSE).
 User and contributor guides have matching English `.md` and Chinese `_zh.md`
 versions. Update both when behavior or examples change, preserve reciprocal
 language links, and keep API names, commands and protocol constants identical.
+
+[TLA+ / Verus specifications and instructions](docs/FORMAL_VERIFICATION.md) describe model assumptions,
+code correspondence and required negative controls.
+
+When changing an environment assumption, update its stable ID in
+[`environment_contracts.json`](verification/environment_contracts.json), the
+[environment review](docs/ENVIRONMENT_MODELS.md), its consuming models and
+sensitivity controls. Keep algorithm policy, exploration bounds and measured
+percentiles separate from required environment guarantees.

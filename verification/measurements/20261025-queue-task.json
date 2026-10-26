@@ -1,0 +1,992 @@
+{
+  "date": "2026-10-25",
+  "scope": "Actual task-record creation, leases, checked retries, terminal transitions, failure evidence and continuation updates called by Coordinator::apply, with malformed-history missing-target rejection. Full dispatcher, caches, admission and history composition remain open.",
+  "properties": {
+    "queue_task::{valid_target,submitted}": "Target predicate accepts Submitted or an existing object task. Construction contains exactly the original spec content, pending state, zero generation/failures, null lease and supplied pending order; mandatory zero fields cannot be omitted.",
+    "queue_task::{retry,terminal,leased}": "Exact selected state, generation, lease and failure-count updates, checked exhaustion, local no-mutation errors and preservation of every unrelated field. Retry succeeds exactly for object tasks with a nonexhausted u64 failure count; it clears the lease and compares the incremented count to max_attempts.",
+    "queue_task::{failure,failed}": "Exact supplied failure evidence, including explicit null, or a fallback reason copied from event type. Retryable defaults to true. Nonretryable failure changes only state and failure evidence. Errors preserve the task record.",
+    "queue_task::{copy_present,progress}": "Always update continuation input, copy optional priority/scheduling-key/metadata only when supplied, and preserve all other spec fields. Yield additionally sets pending, clears the lease and copies the supplied queue order. Missing/nonobject spec is rejected without modifying the task. Ordinary progress preserves all non-spec task fields."
+  },
+  "bug": {
+    "classification": "Malformed-business-history hardening defect. No claim that valid public APIs emit these histories.",
+    "before": "Real Journal appends checksum-valid events targeting an unknown task. All nine old-wheel cases unexpectedly recover successfully, manufacturing partial task state and appending a recovery epoch.",
+    "after": "The caller checks all affected task targets before business mutations. The same nine fixtures raise UnsafeRecovery and leave the journal bytes unchanged.",
+    "baseline_python_failed": 9,
+    "baseline_log_sha256": "34eefba2ff4ed2710758240963c4c1e40cf21752b0d8455573cb3bd6c06b5c9d",
+    "baseline_input_sha256": {
+      "rust/coordinator.rs": "da13ad1f594df890b0d184c8ed43e1fa74c5c94df97472df2587dea21218f705",
+      "rust/lib.rs": "3d87663a43dc66dc0371874a35eaa0f858c625831269e92846d21cb96432ef2c",
+      "Cargo.toml": "0beca6dd63eb775ed64a9c36e65d2ce2982a405766cc7f2e684b1d0069baaeb7",
+      "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+      "tests/test_task_recovery.py": "a175f00218dd3613083fb02469ede871a70b57d3508b4351c0a1a39a0e31ccae"
+    },
+    "baseline_wheel_sha256": "aa6139baa6c130abc6901121e5b3115b0b8d27c3953c4df78dbed0249bebb29a",
+    "reproduce": "python -m pytest -q tests/test_task_recovery.py",
+    "separate_defensive_change": "Failure counter exhaustion returns UnsafeRecovery instead of unchecked increment. The native unit test checks u64::MAX and unchanged state; no valid-API exhaustion witness is claimed."
+  },
+  "runtime_changes": "Coordinator calls the actual shared task-record bodies and checks missing targets before business dispatch. Borrowed key lookup and in-place field updates remain; no extra filesystem calls or persisted-format changes. The guard shares its existing task borrow with usage-cache invalidation. No measured zero-overhead claim.",
+  "boundaries": [
+    "ENV-JSON-LIBRARY newly trusts only the concrete borrowed str::index_into_mut primitive. It reports the selected field and its eventual mutation, preserves all unrelated fields, and leaves the value unchanged when the field is absent. The pinned implementation delegates to Map::get_mut; no complete straw algorithm is admitted.",
+    "Local errors preserve the individual task record. Coordinator may already have invalidated earlier scheduling entries or updated epoch/readers before a later error; commit quarantine and failed-constructor behavior remain native obligations. No full in-memory atomicity is claimed.",
+    "Target checking verifies object presence, not a complete task/lease schema, legal history, Submitted uniqueness or stale attempt/epoch authorization. Progress requires an object spec. Caller iteration, complete task/reader/submission updates, pending-order allocation, derived caches and full business history remain unproved.",
+    "Earlier JSON/WAL target-equivalence and metadata/request proofs remain separate. Full Coordinator/WAL/run/File/lock refinement, cross-log roots, GC and crashed-writer retirement are unfinished. Numeric JSON observations remain as_u64-only; no full floating-point mathematical model is added.",
+    "Proof annotations erase in ordinary compilation. The real extraction/checked errors/target guard are implementation changes whose performance has not been measured in this increment."
+  ],
+  "library_primitive_review": {
+    "crate": "serde_json",
+    "version": "1.0.151",
+    "path": "src/value/index.rs",
+    "sha256": "f1404ed12e795a5553da4bdf72835c441a5e0cc0f6e794fee875eaa887d65319",
+    "primitive": "<str as serde_json::value::Index>::index_into_mut",
+    "behavior": "Object => Map::get_mut(self); all other Value variants => None.",
+    "total_audited_primitives": 19,
+    "new_opaque_types": 0,
+    "new_library_laws": 0
+  },
+  "verus": {
+    "version": "Verus\n  Version: 0.2026.10.18.7d82994\n  Profile: release\n  Platform: linux_x86_64\n  Toolchain: 1.99.1-x86_64-unknown-linux-gnu (overridden by environment variable RUSTUP_TOOLCHAIN)",
+    "archive_sha256": "e9af03732d4bdd32b93a8fcf471706739c24c1473fa5086618d96c47237845dd",
+    "source_sha256": {
+      "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+      "rust/catalog_append.rs": "094268820bfb02aac39a0941ab101c338030d5fb573a825e6ec68d2537c68c6a",
+      "rust/catalog_decode.rs": "3f7d92d9be2e524a190d74a53063668b84d1928e7263664d4a904aff92ecb917",
+      "rust/catalog_event.rs": "48de74ad0a57ffc04eb93a3a48458d2306180fc61835674a3840e2e45471d0b5",
+      "rust/catalog_frame.rs": "6ba1c47d479ce5d3c938a61e638ec280707fb4c2f29c6b011d0f3ccae1126f39",
+      "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+      "rust/catalog_log.rs": "e3726d6cc5ce1df8fbea6d380e534472950b8db248a4a8a33909c924aeabad88",
+      "rust/catalog_target.rs": "2b1d62795522d0aa55769d1fb7df4f841ec749945381358f03b4c111fd0aaa30",
+      "rust/catalog_transaction.rs": "6fb8879a51f220220224d4155578139907c1347e75ab1b0c9e621bc85100eeb7",
+      "rust/catalog_state.rs": "fc825c73455d0fa95a0242fbd88c97cf1b5caba7c513d4bd1936930ebfffcfab",
+      "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+      "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+      "rust/wal_recovery.rs": "7059a6ee758ad5f39c9774512211b6645e501dde8f7decb0bb9af73406a58165",
+      "rust/journal_recovery.rs": "707e865888ea5f61f4c6a93299d68d2b63b56a621c32d31142b01bb67b20febe",
+      "rust/journal_state.rs": "e403bfc56f9f84b10e8f5d68a0cfa8874e8a27d843a3b3d62a4ae401a9406f2c",
+      "rust/journal_append.rs": "5b1683f83694384547e10dd3a5b7e0fa110447f79e829b898b0e2381f8a8870a",
+      "rust/json_update.rs": "092fda1f687bc00a578c21e9b9e2ecdb5edfac04c9f6ea4d970b6a90977464b9",
+      "rust/queue_metadata.rs": "bc330d090dd8a5b4046b07d86091138f56509b14176835f82a81d03086c47fa9",
+      "rust/queue_event.rs": "c76f580d02bdb685da5be6458be8477b170330afc2626f53045adb569a5ceea7",
+      "rust/queue_task.rs": "aed4a107762392ac839bf240f068eb6c7977aa79177fd5952dfb706444bc636c",
+      "rust/request.rs": "7a22a6fc0fbcd34e460074de08ed2f15aefb3739d6c74ffe77e5cfba5d660460",
+      "rust/wal_append.rs": "5e688f69bd99c10c56f575c5baed222566dd557c6be2b0e1508dc1b7c9598b16",
+      "rust/wal_device.rs": "b5b160f4da2af05329bb07b15c7436974479b28b692ab3a7d4de0864648be824",
+      "rust/wal_source.rs": "af2184cb9203c700505b3fdfa6513b32bf96240ab3acca5f4482b83183493452",
+      "rust/wal_sink.rs": "64a34bede7b65af69ff9367fbdf53e21454350e4141e040d61fc4937828dfd7f",
+      "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+      "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+      "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+      "rust/protocol.rs": "57259ece434f47e53eb9a485ef552fd397007781094a572e62c26e67d4003333",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+      "rust/gc_batch.rs": "6100fa9e0814f0712b4c8f1142af605e9420a11181bf16fb7fbad495e03cc550",
+      "rust/gc_io.rs": "113c0845de1c4be5f5b713c57c6b1987778daa3ebe51c5efe6dc495bee7c7e44",
+      "rust/gc_mark.rs": "90a5114d3937e633e4d863260ed4d7c61cfeb82e35070651f0569c710f004d7d",
+      "rust/gc_receipt.rs": "5109dc9d46a9df05e31941f97201725a5d07be45782342dd9a06f77406bc0e49",
+      "rust/closure.rs": "f4f9ed178560b6bb47eae9e2dc9f89940850099a35bbe281716a695cf93ae3cc",
+      "rust/closure_node.rs": "26da0b24a3a02e9f7a5d5ac2a5dbf49c37b4ee0cae7a0b2d88030c94cedb7041",
+      "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+      "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+      "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+      "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+      "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+      "rust/directory_io.rs": "db8d66f12120b8c348551605766fcbcb88800615dcbf73c086b39ceeecd97a20",
+      "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+      "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+      "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+      "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+      "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+      "verification/protocol/verus/control_plane.rs": "5f643bc9f77c0aae9287afea146725cbe9b4a17f21eefcfc2be197e50941eeb4",
+      "verification/protocol/verus/cross_log.rs": "32ea00392a082a5479f72eca932dd775c45cb9331e878f22ff3ec2bf7ebd535c",
+      "verification/protocol/verus/retry_liveness.rs": "6a6dd44fdd9dea77ecbb7a1dcd97203f93de38545be3c323d0802e7c766c21b4",
+      "verification/protocol/verus/request_history.rs": "753f3f24aa7009875b86128753d1c56165afda6f329a76847a46e40ebce6245f",
+      "verification/protocol/verus/queue_event_equivalence.rs": "a20731070828bcd97aec9f2c67a225d4f6fe3cffdb7c437ee141c21d43fb833e",
+      "verification/common/verus/environment.rs": "179e692f669613e8c9007e701b25e1b6b51c94338717820d4ab8ecd8e14902fb",
+      "verification/gc/verus/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+      "verification/wal/verus/prefix_projection.rs": "88291de60635f62eb50a6bee2c909051c5b2781c380e9799a15d0c3f2a170399",
+      "verification/wal/verus/catalog_equivalence.rs": "e6adf3709264c70053f89e58e60534ec27eb9a0b335cda6166a264e3559baa7a",
+      "verification/wal/verus/journal_equivalence.rs": "6553bc7ba5734534c6ab5fb872b6d8b1dc2d35c40fb11e827b99223bd57dd54c",
+      "verification/wal/verus/catalog_json_equivalence.rs": "2a710aac6209eb4597c95dcc8fab216aa7972ebcdfaed1c86fbc5be8bd05bc5f",
+      "verification/common/verus/verus.rs": "a56d1c44b747bce143903f0e273408cdd8debf9d560d4bcf946f81a82194804b",
+      "verification/common/verus/serde_json.rs": "7cf04be477bafcc5bbbc8bdd3645a018ca3630ce49d3eb4b6568d0fd9ff47375",
+      "verification/common/verus/collections.rs": "2e43b23b2f446d859033a364eea393a16c7e7db642eb9a4e810dcbc68b42ef04"
+    },
+    "environment_registry_sha256": "a70cde33c2e682ff4fc1bce0cec559deae36f8ca4216e9dbbbd03847b38e6257",
+    "environment_contracts": [
+      "ENV-RUNTIME",
+      "ENV-AUTH",
+      "ENV-VERUS-PROGRESS",
+      "ENV-VERUS-CATALOG",
+      "ENV-SYNC",
+      "ENV-DELETE-FAILURE",
+      "ENV-FAIR",
+      "ENV-STABILIZE",
+      "ENV-GC-IO",
+      "ENV-GC-RETRY",
+      "ENV-STRING-KEY",
+      "ENV-STREAM",
+      "ENV-STRING-ORDER",
+      "ENV-LOCAL-ACCESS",
+      "ENV-COMMIT-CLEANUP",
+      "ENV-TYPED-DECODE",
+      "ENV-REPLAY-IO",
+      "ENV-REPLAY-APPLY",
+      "ENV-JSON-LIBRARY",
+      "ENV-APPEND-IO",
+      "ENV-COLLECTION-ITERATOR",
+      "ENV-CATALOG-RESOLVER",
+      "ENV-SET-BUILDER",
+      "ENV-COMMIT-EFFECTS",
+      "ENV-GC-BATCH-EFFECTS",
+      "ENV-JSON-PARSE",
+      "ENV-JSON-ENCODE",
+      "ENV-JSON-VALUE-CONSISTENCY",
+      "ENV-CROSS-COMPOSITION",
+      "ENV-GRAPH",
+      "ENV-CLOSURE-SOURCE",
+      "ENV-FILE-PRIMITIVES",
+      "ENV-CATALOG-TRANSACTION",
+      "ENV-GC-PRIMITIVES",
+      "ENV-DIRECTORY"
+    ],
+    "environment_sha256": {
+      "verification/common/verus/environment.rs": "179e692f669613e8c9007e701b25e1b6b51c94338717820d4ab8ecd8e14902fb",
+      "rust/wal_device.rs": "b5b160f4da2af05329bb07b15c7436974479b28b692ab3a7d4de0864648be824",
+      "verification/common/verus/serde_json.rs": "7cf04be477bafcc5bbbc8bdd3645a018ca3630ce49d3eb4b6568d0fd9ff47375",
+      "verification/common/verus/collections.rs": "2e43b23b2f446d859033a364eea393a16c7e7db642eb9a4e810dcbc68b42ef04",
+      "rust/catalog_decode.rs": "3f7d92d9be2e524a190d74a53063668b84d1928e7263664d4a904aff92ecb917",
+      "rust/protocol.rs": "57259ece434f47e53eb9a485ef552fd397007781094a572e62c26e67d4003333",
+      "rust/gc_batch.rs": "6100fa9e0814f0712b4c8f1142af605e9420a11181bf16fb7fbad495e03cc550",
+      "rust/catalog_target.rs": "2b1d62795522d0aa55769d1fb7df4f841ec749945381358f03b4c111fd0aaa30",
+      "rust/closure.rs": "f4f9ed178560b6bb47eae9e2dc9f89940850099a35bbe281716a695cf93ae3cc",
+      "rust/closure_node.rs": "26da0b24a3a02e9f7a5d5ac2a5dbf49c37b4ee0cae7a0b2d88030c94cedb7041",
+      "rust/wal_source.rs": "af2184cb9203c700505b3fdfa6513b32bf96240ab3acca5f4482b83183493452",
+      "rust/wal_sink.rs": "64a34bede7b65af69ff9367fbdf53e21454350e4141e040d61fc4937828dfd7f",
+      "rust/catalog_transaction.rs": "6fb8879a51f220220224d4155578139907c1347e75ab1b0c9e621bc85100eeb7",
+      "rust/gc_io.rs": "113c0845de1c4be5f5b713c57c6b1987778daa3ebe51c5efe6dc495bee7c7e44",
+      "rust/directory_io.rs": "db8d66f12120b8c348551605766fcbcb88800615dcbf73c086b39ceeecd97a20"
+    },
+    "requested_cases": [
+      "queue_task_accepts_missing",
+      "queue_task_rejects_present",
+      "queue_task_omits_initial_generation",
+      "queue_task_wrong_initial_spec",
+      "queue_task_wrong_retry_count",
+      "queue_task_retry_at_limit",
+      "queue_task_retains_retry_lease",
+      "queue_task_accepts_exhaustion",
+      "queue_task_wrong_terminal",
+      "queue_task_wrong_generation",
+      "queue_task_wrong_lease",
+      "queue_task_wrong_failure_reason",
+      "queue_task_forces_terminal_failure",
+      "queue_task_omits_failure_payload",
+      "queue_task_wrong_progress_input",
+      "queue_task_omits_progress_metadata",
+      "queue_task_yields_ordinary_progress",
+      "queue_task_wrong_yield_order",
+      "environment_task_mutation_unframed",
+      "environment_task_mutation_wrong_field",
+      "environment_task_missing_mutates",
+      "queue_event_omits_submitted",
+      "queue_event_wrong_lease_field",
+      "queue_event_wrong_epoch_field",
+      "queue_event_omits_failed",
+      "queue_event_omits_progress",
+      "queue_event_wrong_completed_source",
+      "queue_event_repeats_first_id",
+      "queue_event_reverses_order",
+      "queue_event_omits_last_id",
+      "queue_event_accepts_invalid_id",
+      "queue_event_rejects_valid",
+      "environment_queue_index_wrong_key",
+      "environment_queue_index_unconstrained",
+      "environment_queue_target_parse_inconsistent",
+      "queue_event_spec_ignores_order"
+    ],
+    "collection_library": {
+      "specification": "verification/common/verus/collections.rs",
+      "methods": [
+        "<IntoIter<K, V, A> as Iterator>::next",
+        "HashMap::<K, V, S, A>::into_iter",
+        "std::mem::replace::<T>"
+      ],
+      "opaque_types": 1
+    },
+    "serde_json_dependency": {
+      "compiler": "1.99.1",
+      "input_sha256": {
+        "Cargo.toml": "0beca6dd63eb775ed64a9c36e65d2ce2982a405766cc7f2e684b1d0069baaeb7",
+        "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323"
+      },
+      "library_sha256": "0f9c913d59880554bab25f7e254418f80d388b4e54cd5b593832bcd552021854",
+      "serde_library_sha256": "dccf46a2c869d71cdb2162d12a74b7ad65b40ac9418958525a20fa0ef0549a63",
+      "trusted_specification": "verification/common/verus/serde_json.rs",
+      "trusted_methods": [
+        "<Value as Clone>::clone",
+        "<serde_json::Number as From<u64>>::from",
+        "<serde_json::map::Iter<'a> as Iterator>::next",
+        "<str as serde_json::value::Index>::index_into",
+        "<str as serde_json::value::Index>::index_into_mut",
+        "Value::as_array",
+        "Value::as_bool",
+        "Value::as_object",
+        "Value::as_str",
+        "Value::as_u64",
+        "Value::is_null",
+        "serde_json::Map::<String, Value>::get::<Q>",
+        "serde_json::Map::<String, Value>::get_mut::<Q>",
+        "serde_json::Map::<String, Value>::insert",
+        "serde_json::Map::<String, Value>::iter",
+        "serde_json::Map::<String, Value>::new",
+        "serde_json::Map::<String, Value>::remove::<Q>",
+        "serde_json::from_slice::<T>",
+        "serde_json::to_vec::<T>"
+      ],
+      "trusted_laws": [
+        "value_encoding",
+        "value_parse_consistency"
+      ],
+      "features": [
+        "default",
+        "float_roundtrip",
+        "std"
+      ],
+      "opaque_types": 4,
+      "transparent_types": [
+        "serde_json::Value"
+      ]
+    },
+    "report_sha256": "14426824cae70887ed80f2f7c07a2cc878432c36c985ee9ae3bf4512c1eaacec",
+    "cases": [
+      {
+        "name": "production",
+        "verification_filter": null,
+        "verification_module": null,
+        "case_kind": "positive",
+        "expected_failure": false,
+        "verified": 480,
+        "errors": 0,
+        "resource_failure": false,
+        "exit_status": 0,
+        "seconds": 8.542718768119812,
+        "passed": true,
+        "modified_input_sha256": {}
+      },
+      {
+        "name": "queue_task_accepts_missing",
+        "verification_filter": "valid_target",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.144858315587044,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "a9ddaccfe2618911ae302593584a3cc747456cd5e5df4549bab4eb39bcfb9369"
+        }
+      },
+      {
+        "name": "queue_task_rejects_present",
+        "verification_filter": "valid_target",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.442377381026745,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "bf886f6c880a0e08980ac153c3169c591a0e5886efb0cf346d3280c37ee7d1e4"
+        }
+      },
+      {
+        "name": "queue_task_omits_initial_generation",
+        "verification_filter": "submitted",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.837799973785877,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "0854922f0409808b0ed6e650477314d01ae5882bd696505d17079dd2eb682366"
+        }
+      },
+      {
+        "name": "queue_task_wrong_initial_spec",
+        "verification_filter": "submitted",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.49545942991972,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "37aa3a688f097c65cf27f62f4124df1eb42911182fe4d2e7a2e6b4fceeade3bc"
+        }
+      },
+      {
+        "name": "queue_task_wrong_retry_count",
+        "verification_filter": "retry",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.896693870425224,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "086a2776b3d8871f7943adeb5ee0b238c1a6ba436d509da822fcb2d94be60da5"
+        }
+      },
+      {
+        "name": "queue_task_retry_at_limit",
+        "verification_filter": "retry",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.015226855874062,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "a3dfd2cbb8129451005162501ea309bcc1188eb402e6bc7afffb93ea327d8588"
+        }
+      },
+      {
+        "name": "queue_task_retains_retry_lease",
+        "verification_filter": "retry",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.8982168063521385,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "94053e5db19242ecfa4ff1a8a923fa86634cb55aac04db2d2d26a17e2f0f8b64"
+        }
+      },
+      {
+        "name": "queue_task_accepts_exhaustion",
+        "verification_filter": "retry",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.02340479940176,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "6a4e72a6f967de0f09e73a04feadeb88d6b86ea5abab4bc70a9cb76ac0878ae9"
+        }
+      },
+      {
+        "name": "queue_task_wrong_terminal",
+        "verification_filter": "terminal",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.953961789608002,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "a3796f45244d095307c16e25f031ec9634704b400b5f06df6ce0e52144667abe"
+        }
+      },
+      {
+        "name": "queue_task_wrong_generation",
+        "verification_filter": "leased",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.486115954816341,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "f5b5d21b4ece4cfa41e655c6ccb237a23e22d5fc0a6250fcbc92e8a7c9ffcfde"
+        }
+      },
+      {
+        "name": "queue_task_wrong_lease",
+        "verification_filter": "leased",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.559520281851292,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "17f089899f24afbc71111e396a97591860abfd9c71b41323a1e954637421f428"
+        }
+      },
+      {
+        "name": "queue_task_wrong_failure_reason",
+        "verification_filter": "failure",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.4105293825268745,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "3f817324a63a93f16075a37afb95200fb5189f7ce7a202ff5043bcb906b08b40"
+        }
+      },
+      {
+        "name": "queue_task_forces_terminal_failure",
+        "verification_filter": "failed",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.445804312825203,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "d1e84c89a70e4e58c582d9da326988f27f1cc03472493bf66294395c5271b6ac"
+        }
+      },
+      {
+        "name": "queue_task_omits_failure_payload",
+        "verification_filter": "failed",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.46173744648695,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "a9bbaeedc191c4cd0b957993d663e15b5e18652bf1400d9d6a9642c4e4f7dc86"
+        }
+      },
+      {
+        "name": "queue_task_wrong_progress_input",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.052445352077484,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "5dabbd528e1b2e9376b7ede4bdbe57d49bbe04b8ec9f060926f233a53938bfef"
+        }
+      },
+      {
+        "name": "queue_task_omits_progress_metadata",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.588435284793377,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "2c671f8083854a0926533831dfe7a2035baf0f089365e9933f274cd4bcc683db"
+        }
+      },
+      {
+        "name": "queue_task_yields_ordinary_progress",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.669336378574371,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "7f4eae3ace7971be41a63588f7b37b7d3885e44d51219c7da8fef1811e0981a2"
+        }
+      },
+      {
+        "name": "queue_task_wrong_yield_order",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.751849099993706,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_task.rs": "ecbebc1d27ce119581c849450b3b66fcabbc1d170dd5f8ce548786a0a4eae597"
+        }
+      },
+      {
+        "name": "environment_task_mutation_unframed",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.632841892540455,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "72add2f8c3491999472ec9130a6a6d66fa50deddb8462b03e8fbd82978a07000"
+        }
+      },
+      {
+        "name": "environment_task_mutation_wrong_field",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.639934621751308,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "097ad6e75578775d716909bffc6966faa2669879587d0edd5e94d22f15486c85"
+        }
+      },
+      {
+        "name": "environment_task_missing_mutates",
+        "verification_filter": "progress",
+        "verification_module": "queue_task",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.849708206951618,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "9d4fe54c9685e1b6f9e776f486c03470586a982f0598184b833846b03e2d5fdc"
+        }
+      },
+      {
+        "name": "queue_event_omits_submitted",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.9345703125,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "23500a89c7ffa191c4e4565b304a03fe65f564bd742b84bd74b9a988ec0495a8"
+        }
+      },
+      {
+        "name": "queue_event_wrong_lease_field",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.4671622440218925,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "fcfd73351b0b2144b041473d1f3c7dbcba33ba040830ca71b010e3f9c9d46956"
+        }
+      },
+      {
+        "name": "queue_event_wrong_epoch_field",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.923214986920357,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "a0eb22f331b13108e2442647d377730335641bc698be0e70fe3e230bbf2949dc"
+        }
+      },
+      {
+        "name": "queue_event_omits_failed",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.4963642209768295,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "ec022109569fb44b5f37c7bfd6efe0d405106ccf1d5d359f42c20715d0461f52"
+        }
+      },
+      {
+        "name": "queue_event_omits_progress",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.731611013412476,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "749fb6c1b1b99b9c837040ea7421f13b3c28dd0cacc313b751054a49fc20e157"
+        }
+      },
+      {
+        "name": "queue_event_wrong_completed_source",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.676171615719795,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "1dbf3a487ac13d5d7e168b7d40d488c3762a900a30e0a17c4c34afa750e7c716"
+        }
+      },
+      {
+        "name": "queue_event_repeats_first_id",
+        "verification_filter": "collect",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 1,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.080691754817963,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "36753a808e43de99fccd7c0042a04a0055e4cbba90ad948efa0dd57e3edeecfe"
+        }
+      },
+      {
+        "name": "queue_event_reverses_order",
+        "verification_filter": "collect",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 1,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.565617226064205,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "33b885100b742e8cf9c08b705aaa7b469076b4ad31c3712a5fddfe5dc75e020e"
+        }
+      },
+      {
+        "name": "queue_event_omits_last_id",
+        "verification_filter": "collect",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 1,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.5256389528512955,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "d613a0b3fbdbcac4671c6ada5da09e652e58942cd7fa2ff0029949286a0ab727"
+        }
+      },
+      {
+        "name": "queue_event_accepts_invalid_id",
+        "verification_filter": "collect",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 1,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.375233888626099,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "c1b5aa92adf7518dd30da2e5cdb3a70ef3b2bf6ed79a920792fb8b8aecab56e5"
+        }
+      },
+      {
+        "name": "queue_event_rejects_valid",
+        "verification_filter": "prepare",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.324014358222485,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "09cfdb11c33552ca6d5e31184f06c77ef2fb37145440951af75b79c243cca33b"
+        }
+      },
+      {
+        "name": "environment_queue_index_wrong_key",
+        "verification_filter": "string_field",
+        "verification_module": "queue_event",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.401440821588039,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "102ce6c90db4d71ef440f378f465a15396c92f05c837a7eae7d5ffcff871ef99"
+        }
+      },
+      {
+        "name": "environment_queue_index_unconstrained",
+        "verification_filter": "array_field",
+        "verification_module": "queue_event",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.357810594141483,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "7da8381fa0be061eba614381d0cac984d151af5cd69571d375fe2f2db89f6c21"
+        }
+      },
+      {
+        "name": "environment_queue_target_parse_inconsistent",
+        "verification_filter": "parsed_targets_equal",
+        "verification_module": "queue_event_equivalence",
+        "case_kind": "environment_negative",
+        "expected_failure": true,
+        "verified": 0,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 4.371968820691109,
+        "passed": true,
+        "modified_input_sha256": {
+          "verification/common/verus/serde_json.rs": "9bd39ff7d2ffe92de23729cd7f277613b01819e8f4653ecc5b50373717773717"
+        }
+      },
+      {
+        "name": "queue_event_spec_ignores_order",
+        "verification_filter": "collect",
+        "verification_module": "queue_event",
+        "case_kind": "algorithm_negative",
+        "expected_failure": true,
+        "verified": 1,
+        "errors": 1,
+        "resource_failure": false,
+        "exit_status": 1,
+        "seconds": 5.152874700725079,
+        "passed": true,
+        "modified_input_sha256": {
+          "rust/queue_event.rs": "8d290fe061b5d70fb20bd415d44cbd18060decdf6dd8494cebc9a7acd0a47ada"
+        }
+      }
+    ],
+    "passed": true,
+    "reproduce": "python verification/runners/check_verus.py --verus /path/to/pinned/verus --case queue_task_accepts_missing --case queue_task_rejects_present --case queue_task_omits_initial_generation --case queue_task_wrong_initial_spec --case queue_task_wrong_retry_count --case queue_task_retry_at_limit --case queue_task_retains_retry_lease --case queue_task_accepts_exhaustion --case queue_task_wrong_terminal --case queue_task_wrong_generation --case queue_task_wrong_lease --case queue_task_wrong_failure_reason --case queue_task_forces_terminal_failure --case queue_task_omits_failure_payload --case queue_task_wrong_progress_input --case queue_task_omits_progress_metadata --case queue_task_yields_ordinary_progress --case queue_task_wrong_yield_order --case environment_task_mutation_unframed --case environment_task_mutation_wrong_field --case environment_task_missing_mutates --case queue_event_omits_submitted --case queue_event_wrong_lease_field --case queue_event_wrong_epoch_field --case queue_event_omits_failed --case queue_event_omits_progress --case queue_event_wrong_completed_source --case queue_event_repeats_first_id --case queue_event_reverses_order --case queue_event_omits_last_id --case queue_event_accepts_invalid_id --case queue_event_rejects_valid --case environment_queue_index_wrong_key --case environment_queue_index_unconstrained --case environment_queue_target_parse_inconsistent --case queue_event_spec_ignores_order"
+  },
+  "native": {
+    "command": "cargo test --locked",
+    "passed_runtime": 86,
+    "passed_doctests": 4,
+    "failed": 0,
+    "log_sha256": "4943df049f725a8ae3804b4dc9d2c0d6cfc2d483d50c12c4cdee1ba0b206197a",
+    "source_sha256": {
+      "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+      "Cargo.toml": "0beca6dd63eb775ed64a9c36e65d2ce2982a405766cc7f2e684b1d0069baaeb7",
+      "pyproject.toml": "c39faaab63256d71a91cb0adb8d2796b7a40bfadda08ca581a72f664b40af465",
+      "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+      "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+      "rust/catalog_append.rs": "094268820bfb02aac39a0941ab101c338030d5fb573a825e6ec68d2537c68c6a",
+      "rust/catalog_decode.rs": "3f7d92d9be2e524a190d74a53063668b84d1928e7263664d4a904aff92ecb917",
+      "rust/catalog_event.rs": "48de74ad0a57ffc04eb93a3a48458d2306180fc61835674a3840e2e45471d0b5",
+      "rust/catalog_frame.rs": "6ba1c47d479ce5d3c938a61e638ec280707fb4c2f29c6b011d0f3ccae1126f39",
+      "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+      "rust/catalog_log.rs": "e3726d6cc5ce1df8fbea6d380e534472950b8db248a4a8a33909c924aeabad88",
+      "rust/catalog_state.rs": "fc825c73455d0fa95a0242fbd88c97cf1b5caba7c513d4bd1936930ebfffcfab",
+      "rust/catalog_target.rs": "2b1d62795522d0aa55769d1fb7df4f841ec749945381358f03b4c111fd0aaa30",
+      "rust/catalog_transaction.rs": "6fb8879a51f220220224d4155578139907c1347e75ab1b0c9e621bc85100eeb7",
+      "rust/closure.rs": "f4f9ed178560b6bb47eae9e2dc9f89940850099a35bbe281716a695cf93ae3cc",
+      "rust/closure_node.rs": "26da0b24a3a02e9f7a5d5ac2a5dbf49c37b4ee0cae7a0b2d88030c94cedb7041",
+      "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+      "rust/coordinator.rs": "c9c8b06a6dd0bc30dfecb2f9576f1b563a60e9e4f8380117fefa607802570193",
+      "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+      "rust/directory_io.rs": "db8d66f12120b8c348551605766fcbcb88800615dcbf73c086b39ceeecd97a20",
+      "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+      "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+      "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+      "rust/gc.rs": "fa3415ea14946e001d312b2870664595fe942eccd5e055e2993086d8c5e662ff",
+      "rust/gc_batch.rs": "6100fa9e0814f0712b4c8f1142af605e9420a11181bf16fb7fbad495e03cc550",
+      "rust/gc_io.rs": "113c0845de1c4be5f5b713c57c6b1987778daa3ebe51c5efe6dc495bee7c7e44",
+      "rust/gc_mark.rs": "90a5114d3937e633e4d863260ed4d7c61cfeb82e35070651f0569c710f004d7d",
+      "rust/gc_receipt.rs": "5109dc9d46a9df05e31941f97201725a5d07be45782342dd9a06f77406bc0e49",
+      "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+      "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+      "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+      "rust/journal.rs": "aad2ca64e4e8f6d887b7f28e313c1ed714decbbb19b9e4d6142ad35e57e14b23",
+      "rust/journal_append.rs": "5b1683f83694384547e10dd3a5b7e0fa110447f79e829b898b0e2381f8a8870a",
+      "rust/journal_recovery.rs": "707e865888ea5f61f4c6a93299d68d2b63b56a621c32d31142b01bb67b20febe",
+      "rust/journal_state.rs": "e403bfc56f9f84b10e8f5d68a0cfa8874e8a27d843a3b3d62a4ae401a9406f2c",
+      "rust/json_update.rs": "092fda1f687bc00a578c21e9b9e2ecdb5edfac04c9f6ea4d970b6a90977464b9",
+      "rust/lib.rs": "900be50a85f59330feb401f8f8be6729705206cdb9a4b8cee64ef3ee78c2821b",
+      "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+      "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+      "rust/protocol.rs": "57259ece434f47e53eb9a485ef552fd397007781094a572e62c26e67d4003333",
+      "rust/python.rs": "b50458887d207dec15563ec1fd51de0d5d4afa8a68771a172eff50a5c797a909",
+      "rust/queue_event.rs": "c76f580d02bdb685da5be6458be8477b170330afc2626f53045adb569a5ceea7",
+      "rust/queue_metadata.rs": "bc330d090dd8a5b4046b07d86091138f56509b14176835f82a81d03086c47fa9",
+      "rust/queue_task.rs": "aed4a107762392ac839bf240f068eb6c7977aa79177fd5952dfb706444bc636c",
+      "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+      "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+      "rust/request.rs": "7a22a6fc0fbcd34e460074de08ed2f15aefb3739d6c74ffe77e5cfba5d660460",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "rust/store.rs": "cd54e6f31c94d312376265e099111908642dcf15c11579874f59d2ec0c87b120",
+      "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+      "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+      "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+      "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+      "rust/wal_append.rs": "5e688f69bd99c10c56f575c5baed222566dd557c6be2b0e1508dc1b7c9598b16",
+      "rust/wal_device.rs": "b5b160f4da2af05329bb07b15c7436974479b28b692ab3a7d4de0864648be824",
+      "rust/wal_file.rs": "881221fb3ed8e97fb8b42d64e67e36659289ce2b9e9896eae69854c3cb1308bb",
+      "rust/wal_recovery.rs": "7059a6ee758ad5f39c9774512211b6645e501dde8f7decb0bb9af73406a58165",
+      "rust/wal_sink.rs": "64a34bede7b65af69ff9367fbdf53e21454350e4141e040d61fc4937828dfd7f",
+      "rust/wal_source.rs": "af2184cb9203c700505b3fdfa6513b32bf96240ab3acca5f4482b83183493452",
+      "tests/native.rs": "b50b5437d112cc3ac6521f3128e1f75bc246c675f3ec3a745ef971e5a6fc72ab"
+    },
+    "coverage": "Counter exhaustion without mutation, actual completion/replay/stale-lease, commit quarantine, exact JSON roundtrip, catalog and I/O regressions."
+  },
+  "python": {
+    "command": "python -m pytest -q tests/test_task_recovery.py tests/test_filesystem_queue.py tests/test_lease_selection.py tests/test_journal_contract.py tests/test_wal_recovery.py tests/test_metadata_recovery.py tests/test_json_roundtrip.py tests/test_request_replay.py tests/test_consumer_rewind.py tests/test_resume_workflow.py tests/test_durable_handoff.py tests/test_commit_protocol.py tests/test_commit_consumption.py tests/test_online_gc.py tests/test_staging_consumption.py",
+    "passed": 299,
+    "failed": 0,
+    "log_sha256": "20c5a5ffa42e9c7465fafc974f8ac63533810443c5012d69c8ed2dd9c500250b",
+    "source_sha256": {
+      "src/straw/__init__.py": "67f0f297afdfe971a786e9cfe17e296fa317af37e042d5a708a36de77cd091ee",
+      "src/straw/backend.py": "5783b9cadd23d1287e01c0bf0a4a27cee0243221878f4266c445a16d3423f436",
+      "src/straw/benchmark.py": "866d0c747f528c3496e9352ca624c08c2080d5918d64ba95d8478247d385fcdf",
+      "src/straw/coordinator.py": "b9aede16d0441212ae959d46a595dd6a8420164a843f2045455730912588cbf8",
+      "src/straw/errors.py": "a2286ad7a09082d977553575fcc80e68c11d4aae473dabde7db10868e28d93ad",
+      "src/straw/inspect.py": "6c4783ba1debe9591fd0b32a13783f10931841cd57d4677f518760b9bc275c11",
+      "src/straw/journal.py": "67cf2563dd5b9852230cefb6f9e92d1919a381aedcd9b50cbbdbe5b3fb499886",
+      "src/straw/protocol.py": "1145127cc19329468a625dc37fad2c869a85a82cf3d876fa8a695449747f0ca1",
+      "src/straw/reporting.py": "52e30218cdca76d0389f50eb5e5b843105ebd84fbcffaec37a905a4421912c23",
+      "src/straw/rpc.py": "395e63859f4d2e6888db6d18600a38cf3c77b6f56d1cb66a4d86211b075354bb",
+      "src/straw/store.py": "1d45d5d15fd81ad1fe1dd10cce945debda6a6803b70502f76db2fcc976ca7a8c",
+      "src/straw/tensor.py": "38f49f7e6e7b39d4e2517819a55e8113b268d2e1824237612fce1b5d6fe2750b",
+      "src/straw/tracing.py": "ddcaa86dee95d2faa969183c318b8f8e53568454afb18f33d53e2d1119ea0aac",
+      "tests/test_commit_consumption.py": "d0609fead503d7124e71065e0455100a553f8b0dd7f7c45cee2efc6ed0fe5366",
+      "tests/test_commit_protocol.py": "b95d568b15a81e11a015029f787517ded9505918a2ae3f47337cc4e311a07cd7",
+      "tests/test_consumer_rewind.py": "8de263cd6028a64b0b974bfde96dfa212739512456549d3c6542baa37996a2a0",
+      "tests/test_durable_handoff.py": "86dad314f0f3e0da8b1b2db3e38ff8eedba26bf4ddad7eeaec7d593759b0f2b7",
+      "tests/test_filesystem_queue.py": "da563d0d828263389a21aacf1d14b7853292c04b4c8bca663cd523c2ccab0c4b",
+      "tests/test_journal_contract.py": "506e0e15632bde175cccb5f2bcdc217a97c28064b9f65a4e8a4a42a52313532e",
+      "tests/test_json_roundtrip.py": "1f6c3df2bceed7c9d87060422a1150ebb25fb37e10c18c0812eb42bb2622a5cf",
+      "tests/test_lease_selection.py": "050fec2579c5f63910315d35ff39d1fb3a5f673a4aedb35c50a5c738998add32",
+      "tests/test_metadata_recovery.py": "b81383ae4ee4138e89f540bc5db6046da024057025efde3b0efaed974119b945",
+      "tests/test_online_gc.py": "be7274a4cb7aa21441e54a3e14cb0799832f66b6d89b122aedf7c8bfd0e3822e",
+      "tests/test_request_replay.py": "345639e963eb7de88aab0f753b4aa313bc1fef48e1c4133e0196f627337e386b",
+      "tests/test_resume_workflow.py": "8b69f1723f011e35ccf44bc31badf55f1db9af83a62bb2d9269a791c0f9fd8e9",
+      "tests/test_staging_consumption.py": "a5798cc4418bca97756f51b864a675db45f5441de66e1886e04db087a04f0404",
+      "tests/test_task_recovery.py": "a175f00218dd3613083fb02469ede871a70b57d3508b4351c0a1a39a0e31ccae",
+      "tests/test_wal_recovery.py": "bc3bcc396840cb943a2a78c271c74ca3ca56fe82c28e67ad9f9e49034cbc15e9"
+    },
+    "full_suite_rerun": false,
+    "coverage": "Nine new missing-target history cases plus existing scheduling, leasing, progress/completion/recovery, malformed metadata history, request replay, resume, handoff and GC."
+  },
+  "wheel": {
+    "filename": "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "sha256": "f60e233a06e5598a3ce82db08d25b5822bf752d6d90235c6705ecca4b1eff074",
+    "command": "maturin build --release --locked --interpreter python3 --out <wheel-output>",
+    "installed_for_python_checks": true
+  },
+  "checks": {
+    "full_positive_obligations": 480,
+    "new_semantic_negatives": 21,
+    "affected_existing_semantic_negatives": 15,
+    "total_semantic_negatives": 36,
+    "rustfmt": true,
+    "black": true,
+    "isort": true,
+    "clippy_all_targets_default": true,
+    "clippy_all_targets_all_features": true,
+    "environment_contracts": 64,
+    "environment_consumers": 49,
+    "environment_layers": 30,
+    "configured_cases": 559,
+    "negative_mutation_anchors": 558,
+    "performance": "No new performance campaign.",
+    "tla": "No model changes or fresh TLC run."
+  },
+  "development_errors_not_evidence": [
+    "An initial mutation anchor was adjusted to the formatted multiline retry condition before the semantic campaign; an anchor mismatch was not counted as a rejected algorithm."
+  ],
+  "runner_sha256": "eb510cb40a64b0075c8253c352a3b0879980dc4e5de7c59d99dbda8c4ad89b59",
+  "environment_runner_sha256": "4ff116443abaa77d10cd0b3de933aae682141696b242de11a2401674b9f333b4"
+}

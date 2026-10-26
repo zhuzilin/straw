@@ -7,6 +7,11 @@ The Rust implementation, finite protocol model and real-filesystem tests provide
 different evidence; none alone proves the whole system. This document describes
 what the code implements and what still needs qualification.
 
+[TLA+ model checking](FORMAL_VERIFICATION.md) covers independently visible read
+regions and bounded ownership/GC interleavings, with positive and negative controls.
+It complements the Python model below and checks bounded-read termination under
+weak fairness; it does not prove refinement of Rust.
+
 ## Prior work and what straw takes from it
 
 | Area | Primary reference | Relevance and boundary |
@@ -40,7 +45,7 @@ formally derived from any one paper.
   The inode is never renamed/replaced. Inside the lock, I/O reopens the log;
   keeping an old handle open is not assumed to invalidate remote caches.
 * Supported deployment is Linux/POSIX. A file fsync makes its preceding bytes
-  durable/visible; directory fsync makes newly created entries durable. The
+  durable; readers may need bounded reopen/revalidation for visibility; directory fsync makes newly created entries durable. The
   storage service must actually provide those guarantees. Errors stop the
   operation; a failed sync is not evidence that no bytes persisted.
 
@@ -59,8 +64,12 @@ formally derived from any one paper.
 A client can still cache attributes for a pack another client has already
 deleted. After a durable tombstone, `unlink` returning `ENOENT` is an idempotent
 success; it does not count as another reclaimed file or byte. Other unlink
-errors remain fatal. The four-client cached-attribute probe in
-`verification/gc_cross_client.py` reproduced this case on JuiceFS, including
+errors remain fatal. For tombstones without a completion receipt, GC also retries parent-directory
+sync when the pack is already absent: unlink success followed by sync failure does not establish a
+durable deletion. The actual commit/GC controllers and candidate selection have
+[Verus conformance proofs](FORMAL_VERIFICATION.md#verification-layers-and-current-coverage);
+I/O adapters and replay remain outside those proofs. The four-client cached-attribute probe in
+`verification/gc/probes/gc_cross_client.py` reproduced this case on JuiceFS, including
 an actual stale successful stat followed by `unlink(ENOENT)`. A deterministic
 fault test covers that boundary and confirms unrelated unlink errors propagate.
 
@@ -149,7 +158,8 @@ While holding the shared catalog lock:
 ```
 candidates = sealed packs - union(all owners' transitive pack closures)
 append durable tombstones for candidates; fsync
-unlink candidates; fsync parent directories
+unlink pending tombstones; fsync each affected parent directory
+append completed reclamation receipts; fsync (keep permanent tombstones)
 ```
 
 Retain rejects tombstoned paths. If the collector dies after marking but before
@@ -180,11 +190,11 @@ live-record compaction or bounded metadata/journal history yet.
 
 | Layer | Available now | What it does not establish |
 | --- | --- | --- |
-| Finite protocol model | `verification/ownership_model.py`: fixed-point exploration of two queues, one immutable pack, one reader, one checkpoint and one crash. Five unsafe mutations, including cursor rewind without root adoption, must produce counterexamples. | Not a TLA+/TLAPS proof, not an unbounded proof, and not verified refinement of Rust. No multi-pack dependency cycles, arbitrary retries, filesystem cache model or liveness proof. |
-| Native log campaign | `verification/crash_campaign.py`: every byte prefix and one XOR mutation at every byte of an appended frame, for both WAL formats; abrupt child exit at catalog and queue WAL boundaries followed by recovery/GC. | Prefix persistence is only one storage fault model. Process exit leaves the kernel alive; this does not simulate torn device sectors, reordered block persistence or server failure. |
+| Finite protocol model | `verification/protocol/checks/ownership_model.py`: fixed-point exploration of two queues, one immutable pack, one reader, one checkpoint and one crash. Five unsafe mutations, including cursor rewind without root adoption, must produce counterexamples. | Not a TLA+/TLAPS proof, not an unbounded proof, and not verified refinement of Rust. No multi-pack dependency cycles, arbitrary retries, filesystem cache model or liveness proof. |
+| Native log campaign | `verification/wal/checks/crash_campaign.py`: every byte prefix and one XOR mutation at every byte of an appended frame, for both WAL formats; abrupt child exit at catalog and queue WAL boundaries followed by recovery/GC. | Prefix persistence is only one storage fault model. Process exit leaves the kernel alive; this does not simulate torn device sectors, reordered block persistence or server failure. |
 | Regression/integration | Rust tests, Python tests driving the native core, executable record/tensor/queue examples. | Finite examples do not establish completeness. |
 | Four-client storage workload | `python -m straw.benchmark run --online-gc ...`: concurrent writers/readers and collection, then reader acknowledgment and measured reclamation. | Fresh paths are not cold-cache evidence; syscall/application payload rates are not backing-device throughput. |
-| Cached-attribute and root-scale probes | `verification/gc_cross_client.py` and `verification/gc_scale.py`, on distinct filesystem clients. | A bounded run does not qualify arbitrary mount settings, service failures or unbounded histories. |
+| Cached-attribute and root-scale probes | `verification/gc/probes/gc_cross_client.py` and `verification/gc/probes/gc_scale.py`, on distinct filesystem clients. | A bounded run does not qualify arbitrary mount settings, service failures or unbounded histories. |
 
 Application training/recovery tests belong to the consuming application. Their
 results are useful integration evidence but are not a core correctness proof.
@@ -196,8 +206,8 @@ Reproduce the inexpensive layers:
 cargo test
 cargo clippy --all-targets --features python -- -D warnings
 python -m pytest
-python verification/ownership_model.py --output /tmp/straw-model.json
-python verification/crash_campaign.py --output /tmp/straw-crashes.json
+python verification/protocol/checks/ownership_model.py --output /tmp/straw-model.json
+python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
 
 The native crash campaign also accepts `--hosts <four hosts> --parent <shared mount>`;
@@ -214,8 +224,8 @@ Before calling this production-ready, the next validation layers should be:
 
 * Expand the model to multiple packs/dependencies, retry identities, coordinator
   epochs and checkpoint replacement; check fairness-conditioned reclamation
-  progress separately from safety. A reviewed TLA+/PlusCal specification and TLC
-  runs are a good way to make this model independently inspectable.
+  progress separately from safety. The checked-in TLA+ specifications provide a starting point for that expansion;
+  their current scope is documented separately.
 * Introduce a narrow filesystem/clock/scheduler interface into the Rust core,
   then run seeded deterministic simulations against a separate sequential
   reference model. Replay each failing seed and shrink it to a short history.

@@ -1,0 +1,165 @@
+{
+  "checkpoint": "20261025-wal-append",
+  "scope": "Both production logs use the verified shared byte append loop. The writer checks observed cursor/length and bounds, preserves the old prefix on success, binds exact payload/hash spans, synchronizes before completion and produces a frame satisfying the shared recovery predicate. Actual LogState::append_to composes admission, Writer effects and stored-plan confirmation; errors retain pending uncertainty.",
+  "native_scope": "The native Appender borrows the original File and preserves queue/catalog fault hooks. Real-file tests cover both log kinds, empty/nonempty frames, recovery round trips and rejection of mismatched cursor/length or overflowing sequence before write/sync hooks.",
+  "remaining": "ENV-APPEND-IO explicitly leaves native descriptor/primitive/fault correspondence unproved. Source, JSON serialization/raw-payload-to-operation binding, replay Target, locking, closure caches, complete Journal/coordinator/GC refinement and conditional progress remain open.",
+  "verus_positive_checks": 225,
+  "targeted_verus_negative_cases": 14,
+  "native_tests": 60,
+  "python_tests": 883,
+  "check_scope": "Eleven append/composition algorithm negatives and three Writer environment negatives; all must fail semantically without resource/tool failures. The complete positive proof, native tests, default/Python clippy and installed-wheel tests/examples/protocol/WAL campaigns pass. No fresh full older-negative or TLC campaign is claimed.",
+  "verus_inputs": {
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+    "rust/catalog_log.rs": "908ccb5ca5b34fe7cb67340495860904b04b8f3af53341f6c0b1b2d2be80e6c4",
+    "rust/catalog_state.rs": "e4bda9a424dd395e048154a7a86fa7fed46ed3151f8453874fbb2dfe72e94af0",
+    "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+    "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+    "rust/wal_recovery.rs": "a83fb5d77b0338ac6a995bfedf865a2b0b48383ba9a1b649fd5663d0cb8de648",
+    "rust/wal_append.rs": "5e688f69bd99c10c56f575c5baed222566dd557c6be2b0e1508dc1b7c9598b16",
+    "rust/wal_device.rs": "4b31f394b40be95febde3f066763f532a1d8f3ec1e11132e9f2edf4c586eeddd",
+    "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+    "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+    "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+    "rust/protocol.rs": "a0a97589977fca8a01b0bcab4f720e3b69e0102493a0c111f33a98839641ab47",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+    "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "verification/protocol/verus/control_plane.rs": "5f643bc9f77c0aae9287afea146725cbe9b4a17f21eefcfc2be197e50941eeb4",
+    "verification/protocol/verus/retry_liveness.rs": "6a6dd44fdd9dea77ecbb7a1dcd97203f93de38545be3c323d0802e7c766c21b4",
+    "verification/common/verus/environment.rs": "21f857e01d197a22d00e8e2c63786196f92bb6e81a3c0594da82b92d1b478264",
+    "verification/gc/verus/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+    "verification/common/verus/verus.rs": "3d42a771c6d9112e6a4c5ed95187d0c86691c7f4b15599b226019857fb4fdd41",
+    "verification/common/verus/serde_json.rs": "7ee192eab1cd024290a885d53188c5e32e97a975d61beb2f4446f4ea81ba3aff"
+  },
+  "proof_environment_registry_sha256": "b44965f93457d6fb2c1808a5a52856455bf6bffdd011b5de30f0e5e3943e02bc",
+  "verus_results": [
+    {
+      "name": "production",
+      "case_kind": "positive",
+      "verified": 225,
+      "errors": 0,
+      "passed": true
+    },
+    {
+      "name": "wal_append_ignores_cursor",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_ignores_length",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_changes_sequence",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_hashes_wrong_frame",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_skips_payload",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_writes_wrong_trailer",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_skips_sync",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "wal_append_reports_error_as_success",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "catalog_confirms_before_wal_write",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "catalog_ignores_wal_write_error",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "catalog_writes_without_admission",
+      "case_kind": "algorithm_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "environment_append_sync_lies",
+      "case_kind": "environment_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "environment_append_changes_bytes",
+      "case_kind": "environment_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    },
+    {
+      "name": "environment_append_inspect_wrong_cursor",
+      "case_kind": "environment_negative",
+      "verified": 224,
+      "errors": 1,
+      "passed": true
+    }
+  ],
+  "artifacts": {
+    "source.tar.gz": "cb547f12c40ee27d10932539b8ac5ca30e746ccb4509a4e4358c23712da110d0",
+    "straw-wal-append-clippy-default-final.log": "501f0207f8672d6b652817f756c8dae9afbe9d0cc96fb32b019622528d7e54e4",
+    "straw-wal-append-clippy-python-final.log": "c0ae90ebff18aeea1bd4150c282636aa43a27f5d982914bb0c76ae03fe0a3b02",
+    "straw-wal-append-final-wheel-check.json": "4e3465c8b3a7ff419d8dccb9d7d2bbe7bee1b6a9629dc361bf8e58755dbf97fc",
+    "straw-wal-append-final-wheel-check.log": "0c296a0a6f66d2bae5ad2902ae078d3fdb2a930bc3071e1469d422c75a538c34",
+    "straw-wal-append-final-wheel.log": "d0bdc4c5dc6989bddb3e4ea3d9a39548603339d4b8550c789fd82e3fec4035c7",
+    "straw-wal-append-native-complete.log": "3a058f9018bcc20644702bfafe185c305976d26b5c86bb004184dc70b7dc8c7d",
+    "straw-wal-append-verus-complete.log": "b7b0fdd1dabf5a42fed5022413c93013b0b65354072c56fbad48f7d1adad3c55",
+    "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl": "bcebc11ec6c4d50958c0619b13417f880fc494c9deb70aa30088b9d0d0d65df2",
+    "verus-evidence.tar.gz": "11349b29b0db17fc5d0fe29886f1db602bb669cbaa268a5f9952f0c247f18880"
+  },
+  "artifact_policy": "Only hashes and relative input names are public. Exact proof inputs, raw logs, source and wheel are archived separately; later edits do not inherit these results."
+}

@@ -1,6 +1,6 @@
 [package]
 name = "straw"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -10,7 +10,7 @@ include = [
     "Cargo.toml", "Cargo.lock", "pyproject.toml", "README*.md", "LICENSE",
     "CHANGELOG*.md", "CONTRIBUTING*.md", ".github/workflows/*.yml",
     "rust/*.rs", "src/**/*.py", "docs/**/*.md", "examples/*.py",
-    "tests/*.py", "tests/native.rs", "verification/*.py", "tools/*.py",
+    "tests/*.py", "tests/native.rs", "verification/**/*.md", "verification/**/*.py", "verification/**/*.rs", "verification/**/*.c", "verification/environment_contracts.json", "verification/measurements/*.json", "verification/**/tla/*.tla", "verification/**/tla/*.cfg", "tools/*.py",
 ]
 
 [lib]
@@ -24,10 +24,41 @@ python = ["dep:pyo3", "pyo3/extension-module"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 sha2 = "0.10"
 uuid = { version = "1.23", features = ["v4"] }
 pyo3 = { version = "0.23.5", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(straw_verus)"] }
+
+[[example]]
+name = "large_extent_probe"
+path = "verification/storage/probes/large_extent_probe.rs"
+
+[[example]]
+name = "reactivation_probe"
+path = "verification/protocol/probes/reactivation_probe.rs"
+
+[[example]]
+name = "standalone_extent_probe"
+path = "verification/storage/probes/standalone_extent_probe.rs"
+
+[[example]]
+name = "handoff_extent_probe"
+path = "verification/protocol/probes/handoff_extent_probe.rs"
+
+[[example]]
+name = "workflow_extent_probe"
+path = "verification/protocol/probes/workflow_extent_probe.rs"
+
+[[example]]
+name = "queue_record_probe"
+path = "verification/protocol/probes/queue_record_probe.rs"
+
+[[example]]
+name = "positioned_extent_probe"
+path = "verification/storage/probes/positioned_extent_probe.rs"

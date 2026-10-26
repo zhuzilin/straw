@@ -146,7 +146,7 @@ def process_crashes(root, hosts=None):
             host = hosts[i % len(hosts)]
             command = [
                 "env",
-                f"PYTHONPATH={Path(__file__).resolve().parents[1] / 'src'}",
+                f"PYTHONPATH={Path(__file__).resolve().parents[3] / 'src'}",
                 "python",
                 str(Path(__file__).resolve()),
                 "--child-root",
@@ -295,7 +295,7 @@ def rewind_crashes(root, hosts):
         host = hosts[i % len(hosts)] if hosts else "local"
         command = [
             "env",
-            f"PYTHONPATH={Path(__file__).resolve().parents[1] / 'src'}",
+            f"PYTHONPATH={Path(__file__).resolve().parents[3] / 'src'}",
             "python",
             str(Path(__file__).resolve()),
             "--child-rewind",

@@ -100,18 +100,18 @@ def test_tensor_rows_cross_write_chunks_without_client_partitioning(tmp_path):
     assert torch.equal(lazy.load(), tensor)
 
 
-def test_tensor_checksum_metadata_stays_bounded_for_large_records(tmp_path, monkeypatch):
+def test_tensor_many_small_checksums_with_streaming_writer(tmp_path, monkeypatch):
     import torch
 
     import straw.tensor as tensor_api
 
     monkeypatch.setattr(tensor_api, "CHUNK_BYTES", 1024)
     data = torch.arange(1024 * 1024, dtype=torch.int32)
-    record = tensor_api.tensor_record(data, "adaptive")
-    assert len(record.metadata["chunks"]) <= 512
-    assert record.metadata["chunk_bytes"] > 1024
-    store = SharedFilesystemStore(tmp_path, "adaptive", codecs=("tensor.v1",), max_buffer_bytes=8192)
-    ref = store.publish([record], submission_id="adaptive")
+    record = tensor_api.tensor_record(data, "fixed")
+    assert len(record.metadata["chunks"]) == 4096
+    assert record.metadata["chunk_bytes"] == 1024
+    store = SharedFilesystemStore(tmp_path, "fixed", codecs=("tensor.v1",), max_buffer_bytes=8192)
+    ref = store.publish([record], submission_id="fixed")
     lazy = tensor_api.TensorRef.from_record_set(store, ref)
     assert torch.equal(lazy[100:10_000], data[100:10_000])
 

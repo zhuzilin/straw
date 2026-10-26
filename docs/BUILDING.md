@@ -1,5 +1,7 @@
 # Binary wheels and source builds
 
+The wheel workflow first calls the complete test workflow from the same commit. All TLA+ models and negative controls, all Verus production proofs and semantic controls, the environment inventory, formatting, Clippy, Rust tests and Python 3.10–3.13 wheel tests must pass before wheel or source-distribution uploads can run. PyPI publication additionally requires the built artifacts to pass their smoke and source-rebuild checks. Failed, cancelled, skipped or timed-out verification blocks the gate. TLA+ cases and Verus controls each run in 16 disjoint shards; every Verus shard also verifies the full production code. Verification reports and failure logs remain available even when package uploads are blocked.
+
 [中文版](BUILDING_zh.md)
 
 ## Users: install a binary
@@ -37,7 +39,7 @@ Cargo dependencies are pinned by `Cargo.lock`.
 
 ```sh
 python -m pip install build maturin twine
-python -m build --wheel --sdist
+python tools/release_build.py python -m build --wheel --sdist
 python -m twine check dist/*
 ```
 
@@ -49,7 +51,7 @@ For a portable Linux x86_64 wheel on a Linux build host, use Zig with maturin:
 
 ```sh
 python -m pip install 'maturin[zig,patchelf]>=1.12,<2'
-maturin build --release --locked --strip --zig \
+python tools/release_build.py maturin build --release --locked --strip --zig \
   --compatibility manylinux_2_28 --out dist
 ```
 
@@ -58,6 +60,8 @@ Alternatively use the manylinux container build in
 [maturin's distribution guidance](https://www.maturin.rs/distribution.html).
 Wheels are interpreter-specific because the binding uses Python's buffer API;
 the project does not claim one ABI3 wheel for every supported interpreter.
+
+The release wrapper derives path mappings from the build environment and removes local home, Cargo, Rust toolchain and checkout prefixes from compiled Rust output. Release CI uses the same mappings. `tools/check_artifact_privacy.py` checks wheel/source archive members before upload; it reports locations and categories without printing matched secrets. Repository scans and artifact scans complement each other and do not prove the absence of every possible secret.
 
 ## Test the distributable artifact
 
@@ -81,7 +85,7 @@ independent model and native crash campaign against that installed wheel too.
 Also check that the source archive is sufficient to rebuild:
 
 ```sh
-python -m pip wheel --no-deps dist/straw_queue-*.tar.gz --wheel-dir rebuilt
+python tools/release_build.py python -m pip wheel --no-deps dist/straw_queue-*.tar.gz --wheel-dir rebuilt
 ```
 
 That command runs on a build machine with Rust. Binary-only users never need

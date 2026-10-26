@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "straw-queue"
-version = "0.1.3"
+version = "0.1.4"
 description = "Rust durable queues for AI tensors and large immutable records"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,7 +40,14 @@ include = [
     { path = "docs/**/*.md", format = "sdist" },
     { path = "examples/*.py", format = "sdist" },
     { path = "tests/**", format = "sdist" },
-    { path = "verification/*.py", format = "sdist" },
+    { path = "verification/**/*.md", format = "sdist" },
+    { path = "verification/**/*.py", format = "sdist" },
+    { path = "verification/**/*.rs", format = "sdist" },
+    { path = "verification/**/*.c", format = "sdist" },
+    { path = "verification/environment_contracts.json", format = "sdist" },
+    { path = "verification/measurements/*.json", format = "sdist" },
+    { path = "verification/**/tla/*.tla", format = "sdist" },
+    { path = "verification/**/tla/*.cfg", format = "sdist" },
     { path = "tools/*.py", format = "sdist" },
 ]
 exclude = ["**/__pycache__/**", "reports/**", "target/**", ".pytest_cache/**"]

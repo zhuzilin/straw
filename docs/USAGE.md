@@ -47,20 +47,24 @@ payload while writing and rejects detected changes before committing. Chunked
 I/O retains the existing record framing and tensor slice API: it does not expose
 partial records or alter durable publication, retry, ownership or GC ordering.
 A pack rotation target is soft; a large record/publication may exceed it. Reads
-of old files retain their stored checksum chunk sizes. A reader configured with
-an explicit smaller record limit must raise it to read larger records.
+of old files retain their stored checksum chunk sizes. Full-record reads still allocate the returned payload; use authenticated ranges
+when only part of a large record is needed.
 
 ## Concurrency: processes and threads
 
-Published extents are immutable, but a shared-filesystem reader can briefly see
-the new file length before the appended header bytes. The native reader closes
-and reopens the file on a short extent or an all-zero 12-byte header, with delays
-of 100, 250, 500, 1000 and 2000 ms. It still validates the header, index and record
-data normally. Persistent failures remain errors; nonzero bad headers and
-checksum failures are not retried by this visibility handling. This applies to
-store and read-session entry points, including dependency validation. Successful
-reads incur no extra I/O, and applications should not stack another retry loop
-around the resulting corruption error.
+Published extents are immutable, but a shared-filesystem reader may see the
+length or header before other committed bytes. Short reads, zero-filled header
+gaps (including partial gaps), and footer/index/envelope/payload/chunk validation
+failures are retried with fresh opens. One requested extent/record/range read
+shares five waits of 100, 250, 500, 1000 and 2000 ms across all validation stages.
+Each returned record/chunk must still pass authentication. Persistent failures
+return `CorruptData`; nonzero bad headers, identity/schema errors and unrelated
+I/O errors fail without this retry. Checksum corruption can therefore take the
+full retry window to report. The waits do not impose a deadline on filesystem
+I/O, and dependency traversal can perform several individually bounded reads.
+This covers store and read-session entry points without extra I/O on successful
+reads. See the [TLA+ specification](FORMAL_VERIFICATION.md) and avoid stacking an
+unbounded application retry loop around corruption errors.
 
 The API is synchronous; straw does not launch an I/O process pool. Applications
 can read/write from multiple processes and machines using the same pool. Each
@@ -72,7 +76,13 @@ threads can overlap those operations. Python serialization, tensor conversion
 and copying input buffers still have costs. A store permits one write in flight;
 concurrent writes through the same instance are rejected with
 `ResourceLimitExceeded`, so serialize them or give each writer its own instance.
-Readers can run concurrently while their references remain protected.
+`metrics`, `seal()` and `close()` use the same nonblocking writer admission: they
+also raise `ResourceLimitExceeded` while a write or another writer operation is
+in flight. Retry after that operation returns. This prevents a synchronous fault
+callback, or a thread that must release that callback, from waiting on the writer
+it already holds. A rejected close/seal leaves the writer unchanged. Readers can
+run concurrently while their references remain protected. This does not make
+catalog/coordinator/journal callbacks generally reentrant.
 
 Metadata is not entirely parallel: each queue has one externally fenced
 coordinator, and catalog mutations/GC share a cross-client lock. More processes
@@ -255,7 +265,9 @@ Retention is a durable owner set, not Python reference counting. Garbage
 collection never depends on `del`, object destruction or lease timeout.
 `retain` replaces that owner's roots; use a different owner ID per independently
 retained version and retain a successor before releasing its predecessor.
-Do not use internal `queue:` or `staged:` owner names.
+Public retain, release and reactivation APIs reject `queue:` and `publication:`
+owner names, which are reserved for internal protocols. Do not use internal
+`staged:` owner names either.
 
 `store.collect_garbage()` reclaims already unowned, sealed packs. For queues,
 call `queue.collect_garbage()` so acknowledged queue history first retires its
@@ -310,6 +322,21 @@ async application. Choose your own control transport; the small JSON HTTP
 transport in `straw.rpc` is for examples/private job networks, not a hosted
 multi-tenant service. See [application integration](APPLICATIONS.md).
 
+### What resumes after a restart
+
+| State | Durable source | Application action |
+|---|---|---|
+| Dataset/task production position | `producer_state` submitted in the same transaction as tasks | Read that state and retry the same request ID after an uncertain result |
+| Partially sampled task | Last committed `save_task_progress` or `yield_task` input reference | Restore its consistent tokens/RNG/application state; work after that point may repeat. An interrupted active lease can consume retry budget |
+| Training | One committed model/optimizer/RNG checkpoint and its matching consumer state | Select that checkpoint externally and explicitly restore its data position, pending work and sparse progress before reading again |
+
+`recover=True` replays the queue WAL; `load_consumer_state` returns its latest saved consumer state. Neither automatically chooses or loads the latest external model checkpoint. For example, if the model checkpoint is at step 100 but the latest processed cursor is 110, resuming the old model at cursor 110 can skip work that must be repeated.
+
+Online GC makes this distinction essential. Results produced after an immutable checkpoint cannot already be its dependencies. Before acknowledging those results as processed, keep them under explicit replay owners, for example one unique owner per checkpoint/receipt via `store.retain(owner, [receipt.result_ref])`. Reusing one owner requires retaining its complete accumulated reference set. Keep these owners until a newer coherent checkpoint is durably committed. Another valid policy is to delay processing acknowledgement until checkpoint commit, at the cost of retaining more runtime budget.
+
+On recovery, first restore the chosen checkpoint's model/optimizer/RNG and its matching consumer state, including pending/prefetched work. Saving the restored consumer state re-establishes required queue ownership before temporary replay owners are released. Missing or reclaimed history is rejected; changing a cursor cannot recreate it. The online-GC/mock-optimizer and abrupt sampling-process regressions are in [test_resume_workflow.py](../tests/test_resume_workflow.py).
+
+
 ## Scoped batch reads
 
 Use one `with store.read_session() as reader:` block for adjacent immutable publications. The reader provides `validate`, `manifest`, `read`, `read_record`, `envelope`, and checked tensor reads. Pass it to `TensorRef.from_record_set_many(store, publication, reader=reader)` and `tensor.load(reader=reader)` to avoid repeatedly parsing a shared extent index.
@@ -322,6 +349,10 @@ Publication dependency validation, continuation batches, consumer snapshots and 
 
 
 ### Persistent task scheduling
+
+`acquire(..., task_ids=[...])` treats IDs as a set filter: repeated IDs do not
+create additional assignments or consume batch slots. Unknown/nonpending IDs
+are ignored; scheduling order still determines which matching tasks are issued.
 
 `TaskSpec.priority` (default 0) is ordered descending, then `scheduling_key`
 (default 0) ascending, then FIFO. Both keys are signed 64-bit integers. Keys and
@@ -339,3 +370,37 @@ This is distinct from `save_task_progress_many`, which keeps leases active.
 applications must coordinate the pause and retain the referenced inputs.
 
 These APIs require `straw-queue>=0.1.1`.
+
+### Request identity after a publication error
+
+Once a complete file exists, retry sync, staging, sealing or internal-owner handoff errors on the same writer with the same API, `submission_id` and contents. Another ID/API returns `IndeterminateCommit`; conflicting contents return `IdempotencyConflict`; explicit `seal()` also refuses. The next request is accepted after the original succeeds. `close()`, abandonment or process death may retain protected files/owners; registered abandoned requests can be handled by the explicit retirement protocol below. Dependency holds created before file completion can also remain.
+
+### Retrying publication release
+
+### Recover a writer publication after a lost reply
+
+Record `store.writer_id` with the application's request identity before publishing. A completed internal handoff does not prove that the caller received its reply. If `Results` was persisted before the error or process exit, a new client in the same pool can query it using all three identity fields:
+
+```python
+receipt = peer.publication_receipt(
+    writer_id,
+    api="publish",          # records, record_set, or publish
+    submission_id="publication-1",
+)
+```
+
+`records` identifies `write_records`; `record_set` identifies `record_set`; `publish` identifies both `publish` and `publish_many`. The query returns a list of the latest recorded results for that exact writer/API/submission ID, including internally completed or retired operations. `None` means no result was recorded for that identity. The query holds the writer's gate and can raise `WriterBusy`; fenced writers remain queryable.
+
+This query does not stage data or change ownership. A returned old reference may already have been consumed and garbage collected; querying its receipt cannot restore the bytes or renew protection. For an unfinished registered publication, `peer.retire_writer(writer_id, policy="recover")` first fences the incarnation, recovers complete results into staging, and seals its reservations. A held gate returns `WriterBusy`; an old writer that resumes after fencing receives `WriterFenced`. Create a new writer for subsequent publications. Explicit `policy="abandon"` abandons unfinished operations while preserving existing queue, reader and staging roots. Unknown legacy preparation ownership is retained and reported rather than guessed from timeouts.
+
+Retirement depends on the deployment's gate-lock, fence-read coherence and in-flight-operation drain contracts described in [environment models](ENVIRONMENT_MODELS.md). It does not infer death from a PID, heartbeat or lease timeout.
+
+`release_publications(refs)` consumes root/dependency staging while preserving independent reader/checkpoint/queue owners. Once new code records the release, even if its response is lost, retry/reopen/regrouping can succeed after manifest GC; it also consumes later staging of recorded dependencies. Release only publications you no longer need. Legacy logs without dependency edges cannot recover already collected manifests and still return an error.
+
+Validation/write errors before a complete publication preserve established dependency holds for the original retry, including across other requests. Explicit `seal()`/`close()` abandons unfinished preparations and cleans their holds; their original retries are no longer guaranteed afterward. Cleanup errors return `IndeterminateCommit` and preserve the current identity; subsequent operations finish started cleanup first. A complete uncertain handoff still requires its original API/submission ID and remains protected even on close. Process death requires explicit retirement; unregistered historical owners still require separate recovery evidence.
+
+## Early typed-tensor reference checks
+
+`TensorRef.load()`, slices and `validate()` bind dtype, shape and byte length to the authenticated envelope before payload allocation/read. Mismatches raise `CorruptData` without first reading a large tensor. Empty slices also validate the reference, so they can perform metadata I/O and report mismatched references or storage errors. They are not evidence that no file was accessed. Matching legacy records continue using their encoded checksum granularity.
+
+The lower-level `store.read_tensor_range(ref, start, stop, expected=...)` and read-session method optionally accept `{"dtype": ..., "shape": [...], "length": ...}` and bind those fields to the envelope. Omitting it preserves the byte-range API. `TensorRef` additionally checks its own shape/byte-count relation. Python validation, JSON/FFI correspondence and full adapter ordering remain outside Verus. Early rejection concerns payload work; metadata reads, parsing and allocations still cost resources.

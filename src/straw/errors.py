@@ -47,3 +47,11 @@ class InvalidReference(QueueError):
 
 class UnsafeRecovery(QueueError):
     pass
+
+
+class WriterBusy(QueueError):
+    pass
+
+
+class WriterFenced(QueueError):
+    pass

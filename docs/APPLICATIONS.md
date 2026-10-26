@@ -49,3 +49,5 @@ optimizer step after rollback is distinct from duplicate logical acceptance.
 Application integration tests should cover their real schemas, abort/resume,
 shared tensor lifetime, multi-reader completion and whole-job recovery. They
 complement the [core protocol checks](VERIFICATION.md); they do not replace them.
+
+Training recovery must use the data state from the selected committed model checkpoint, not automatically the latest queue consumer state. Post-checkpoint results need replay owners before processing acknowledgement allows GC; see [restart semantics](USAGE.md#what-resumes-after-a-restart).

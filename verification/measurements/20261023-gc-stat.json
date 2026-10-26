@@ -1,0 +1,99 @@
+{
+  "passed": true,
+  "change": "GC always attempts unlink even after advisory stat NotFound. Only actual unlink success/trustworthy NotFound permits progress to parent barriers and reclamation receipt. Stat supplies diagnostic known-size accounting.",
+  "verification": {
+    "verus_verified": 69,
+    "verus_errors": 0,
+    "verus_semantic_negatives": 38,
+    "verus_environment_negatives": 3,
+    "tlc_cases": 75,
+    "tlc_environment_negatives": 5,
+    "gc_receipt_states": 64,
+    "legacy_stale_stat_counterexample_states": 19,
+    "python_tests": 347,
+    "native_tests": 23,
+    "clippy_default_and_python": "passed",
+    "installed_wheel_and_protocol_campaigns": "passed",
+    "unchanged_other_tlc_algorithm_config_and_state_counts": 70,
+    "environment_contracts": 23,
+    "environment_consumers": 15
+  },
+  "scope": {
+    "formal": "GCReceipt adds arbitrary stale presence metadata via separate ENV-GC-STAT. No eventual stat freshness premise; returning calls and trustworthy unlink/NotFound remain required. Existing Verus actual controller/index proofs rechecked, with no new complete proof of gc.rs syscall dispatch or stat-to-model refinement. No complete receipt liveness/ownership composition proof.",
+    "diagnostics": "Successful removal without a successful pre-unlink size observation counts one file and zero known bytes. reclaimed_bytes is not exact capacity accounting.",
+    "limits": "The repair prevents new false receipts; it does not automatically repair existing erroneous receipts. No natural stale-stat fault was observed. Injection tests stat only, not untrustworthy unlink NotFound. No 100 GB/TB data throughput rerun or new delay bound."
+  },
+  "natural_visibility": {
+    "passed": true,
+    "root": "private-artifact-0095",
+    "hosts": [
+      "client-1",
+      "client-2",
+      "client-3",
+      "client-4"
+    ],
+    "scope": "Fresh 2 KiB files after each reader primes a negative stat. Writer file+directory fsync completes before reader commands. Persistent SSH JSON pipes; no synchronized cross-host clock; no cache eviction or mount modification.",
+    "observations": 1200,
+    "initially_missing": 0,
+    "observation_ms": {
+      "p50": 0.2546589821577072,
+      "p95": 3.045186400413513,
+      "p99": 9.244624525308609,
+      "max": 21.42387628555298
+    },
+    "data_cleaned": true
+  },
+  "injected_gc": {
+    "passed": true,
+    "root": "private-artifact-0096",
+    "remote": "private-artifact-0097",
+    "hosts": [
+      "client-1",
+      "client-2",
+      "client-3",
+      "client-4"
+    ],
+    "identities": {
+      "baseline": {
+        "wheel_sha256": "2060f9ae2b96049119a26157a1f9f6c2f623ad990e20dd81d32dbbe70accf3dd",
+        "native_sha256": "3425d78cf3f6149657e9f55f521ac67751354e47295aa1ea9f57464d39a1961f"
+      },
+      "fixed": {
+        "wheel_sha256": "33f34d0636632fca635df01f78b3bf568e51c499484bdeb72ff2fc511c768f2a",
+        "native_sha256": "7aba43c199c4a98063c2317fbb3cbcefc4760446bbcb0c33b4ae34e0e0a11cbb"
+      }
+    },
+    "fixed_gc_ms": {
+      "n": 100,
+      "p50": 82.67563581466675,
+      "p95": 135.32713800668716,
+      "p99": 163.1106622517109,
+      "max": 203.3382523804903
+    },
+    "fixed_removals": 100,
+    "legacy_orphans": 8,
+    "scope": "Each fresh native publication contains a 2 KiB payload. One injected stat ENOENT; real unlink and directory sync. First GC timing includes tombstone, fault callback, removal, parent sync and receipt. Repeated GC and fresh-client replay verify durable receipt behavior. Baseline runs intentionally leave orphans, then explicitly remove only those private files; no production data is touched. No payload bandwidth or delay bound.",
+    "data_cleaned": true,
+    "remote_cleanup": {
+      "client-1": true,
+      "client-2": true,
+      "client-3": true,
+      "client-4": true
+    }
+  },
+  "artifacts": {
+    "natural_visibility": "private-artifact-0098",
+    "injected_gc": "private-artifact-0099",
+    "verification": "private-artifact-0100",
+    "baseline_source_snapshot": "private-artifact-0101"
+  },
+  "documentation_source": {
+    "url": "https://juicefs.com/docs/community/guide/cache/",
+    "accessed": "2026-10-23",
+    "scope": "Community documentation lists configurable negative lookup caching, disabled by default. Actual deployment mount options and unlink freshness are not inferred."
+  },
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

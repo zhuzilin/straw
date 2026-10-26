@@ -1,0 +1,642 @@
+{
+  "date": "2026-10-25",
+  "scope": "Actual catalog raw decoding/run binding and interpreted business-history replay under serde, Resolver and KeySet contracts; writer in-flight completion after process death.",
+  "classification": "Verification extension and environment-model correction; no newly demonstrated production data-loss bug.",
+  "verus": {
+    "version": "Verus\n  Version: 0.2026.10.18.7d82994\n  Profile: release\n  Platform: linux_x86_64\n  Toolchain: 1.99.1-x86_64-unknown-linux-gnu (overridden by environment variable RUSTUP_TOOLCHAIN)",
+    "archive_sha256": "e9af03732d4bdd32b93a8fcf471706739c24c1473fa5086618d96c47237845dd",
+    "source_sha256": {
+      "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+      "rust/catalog_decode.rs": "3f7d92d9be2e524a190d74a53063668b84d1928e7263664d4a904aff92ecb917",
+      "rust/catalog_event.rs": "48de74ad0a57ffc04eb93a3a48458d2306180fc61835674a3840e2e45471d0b5",
+      "rust/catalog_frame.rs": "6ba1c47d479ce5d3c938a61e638ec280707fb4c2f29c6b011d0f3ccae1126f39",
+      "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+      "rust/catalog_log.rs": "1e9f864a1e6d1956045b77fec493755f0b72c75baed79f428552d97b6730db07",
+      "rust/catalog_target.rs": "1b823362fe79fa99b4ee491d9291cc4e3973eb958e9b372f44ffbd9c8458a431",
+      "rust/catalog_state.rs": "e4bda9a424dd395e048154a7a86fa7fed46ed3151f8453874fbb2dfe72e94af0",
+      "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+      "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+      "rust/wal_recovery.rs": "3d6725f1d69987c91a93fbb80d4e7cf4dd28fb225c79f6c5e3ff410086c9d233",
+      "rust/journal_recovery.rs": "4bebb3719e30a9a55b7e5b05677bbdda70c6709df644e5c5b5d07e416a467903",
+      "rust/journal_state.rs": "6289415a2f56052b7257ee10af9b895f336737fb7d5902bc928b8c6953d0ab66",
+      "rust/wal_append.rs": "5e688f69bd99c10c56f575c5baed222566dd557c6be2b0e1508dc1b7c9598b16",
+      "rust/wal_device.rs": "e59a83d1e4dedf6d22ea78749a1df11426fbab36ceb6fc8445003933a29d4c4a",
+      "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+      "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+      "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+      "rust/protocol.rs": "57259ece434f47e53eb9a485ef552fd397007781094a572e62c26e67d4003333",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+      "rust/gc_batch.rs": "6100fa9e0814f0712b4c8f1142af605e9420a11181bf16fb7fbad495e03cc550",
+      "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+      "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+      "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+      "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+      "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+      "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+      "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+      "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+      "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+      "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+      "verification/protocol/verus/control_plane.rs": "5f643bc9f77c0aae9287afea146725cbe9b4a17f21eefcfc2be197e50941eeb4",
+      "verification/protocol/verus/retry_liveness.rs": "6a6dd44fdd9dea77ecbb7a1dcd97203f93de38545be3c323d0802e7c766c21b4",
+      "verification/common/verus/environment.rs": "21f857e01d197a22d00e8e2c63786196f92bb6e81a3c0594da82b92d1b478264",
+      "verification/gc/verus/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+      "verification/wal/verus/prefix_projection.rs": "88291de60635f62eb50a6bee2c909051c5b2781c380e9799a15d0c3f2a170399",
+      "verification/common/verus/verus.rs": "a43696a621d80153f7f610db663405ad97f59ab9fb7a5d7b3085bd630dbfdd63",
+      "verification/common/verus/serde_json.rs": "3eb22d879d554abf29cd2671735fa1c9c1e6edc90cc7a64f05ea0363e4a128e1",
+      "verification/common/verus/collections.rs": "2e43b23b2f446d859033a364eea393a16c7e7db642eb9a4e810dcbc68b42ef04"
+    },
+    "environment_registry_sha256": "4b73caf33ac4e358b05fe9610d66317cea6e42e33ad2bd6dc04d0b2c8f3e2353",
+    "environment_sha256": {
+      "verification/common/verus/environment.rs": "21f857e01d197a22d00e8e2c63786196f92bb6e81a3c0594da82b92d1b478264",
+      "rust/wal_device.rs": "e59a83d1e4dedf6d22ea78749a1df11426fbab36ceb6fc8445003933a29d4c4a",
+      "verification/common/verus/serde_json.rs": "3eb22d879d554abf29cd2671735fa1c9c1e6edc90cc7a64f05ea0363e4a128e1",
+      "verification/common/verus/collections.rs": "2e43b23b2f446d859033a364eea393a16c7e7db642eb9a4e810dcbc68b42ef04",
+      "rust/catalog_decode.rs": "3f7d92d9be2e524a190d74a53063668b84d1928e7263664d4a904aff92ecb917",
+      "rust/protocol.rs": "57259ece434f47e53eb9a485ef552fd397007781094a572e62c26e67d4003333",
+      "rust/gc_batch.rs": "6100fa9e0814f0712b4c8f1142af605e9420a11181bf16fb7fbad495e03cc550",
+      "rust/catalog_target.rs": "1b823362fe79fa99b4ee491d9291cc4e3973eb958e9b372f44ffbd9c8458a431"
+    },
+    "cases": [
+      {
+        "name": "production",
+        "passed": true,
+        "verified": 307,
+        "errors": 0,
+        "case_kind": "positive",
+        "verification_filter": null,
+        "verification_module": null,
+        "resource_failure": false,
+        "exit_status": 0,
+        "changed_source_sha256": {}
+      },
+      {
+        "name": "catalog_frame_accepts_wrong_run",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "matches_run",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "46794bba86b1388c81076f7aaf866bce6ee162f751541c01a41af1671b07559f"
+        }
+      },
+      {
+        "name": "catalog_frame_skips_run",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "decode",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "eb4a938189209c685945d8faa4cf9f5c9cd0b762cdf991aa256c2c5cd6933e86"
+        }
+      },
+      {
+        "name": "catalog_frame_wrong_bytes",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "decode",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "2101312b177b2c446c19cdc669d89882fed3cf399417bcfdf1bd1188558ee438"
+        }
+      },
+      {
+        "name": "catalog_frame_rejects_valid_run",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "decode",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "25de4c46c1b21c3db2979734f87992338f69ae31334cf0eccc7e87f35ea9215e"
+        }
+      },
+      {
+        "name": "catalog_frame_drops_operations",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "decode",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "23d673445cb6950e7f0a7bae9ac44aaeb0246bdc6f404195b7251bbc58be9b15"
+        }
+      },
+      {
+        "name": "catalog_frame_wrong_known_graph",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "decode",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "38884b9a48f43dab7bc2f2235125da3e585e205b982b2c913a31faf7ce7736b9"
+        }
+      },
+      {
+        "name": "catalog_frame_keeps_closure_cache",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "reset",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_frame.rs": "4260a046e4b27de7aabcbedfe40a4cfd3dd8b1f4280b6d70067bf0c7a46ace4b"
+        }
+      },
+      {
+        "name": "environment_catalog_decode_meaning_unbound",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "apply",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_target.rs": "b07d7d4642eaf04600d124892e1032b44b1b7da08633235787f1302e395c104c"
+        }
+      },
+      {
+        "name": "environment_catalog_reset_changes_namespace",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "reset",
+        "verification_module": "catalog_frame",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_decode.rs": "fe83e62907c745328547805e2363ef1e042c94348bdfd0e3dc323dc818997521"
+        }
+      },
+      {
+        "name": "environment_recovery_omits_context",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_recovery.rs": "c932cf9ace7abf319cba68d358348b56ab551024e866b729f414c8e871fa86bf"
+        }
+      },
+      {
+        "name": "catalog_target_skips_apply",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "apply",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_target.rs": "e28eaa77cc6540b85cfa98e4571a67899676904b1e7eb957c73e8f57ec738dc1"
+        }
+      },
+      {
+        "name": "catalog_target_wrong_payload",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "apply",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_target.rs": "c8ce5ce8d917e68dfa624147943433b803d4784625d82acd5eadd82452a0ef8d"
+        }
+      },
+      {
+        "name": "catalog_target_accepts_decode_error",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "apply",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_target.rs": "99af613ba80fa7f0d7c9de89a18631de4986945e0a9b8609f8212eb206035dee"
+        }
+      },
+      {
+        "name": "catalog_target_ignores_apply_error",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "algorithm_negative",
+        "verification_filter": "apply",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/catalog_target.rs": "cb053ba0102b1b2bbd42665b197d79b149d2157d94641822348ca05aa1748d9a"
+        }
+      }
+    ]
+  },
+  "writer_model": {
+    "cases": [
+      {
+        "case": "writer_lifetime",
+        "case_kind": "positive",
+        "expected_violation": null,
+        "expected_violation_kind": null,
+        "passed": true,
+        "distinct_states": 18,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "75758831daaadcebde2d68e1c6fad26a0dda3c53bf3ef2c7c92c9ba060bd3d5f",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_clean_close",
+        "case_kind": "positive",
+        "expected_violation": null,
+        "expected_violation_kind": null,
+        "passed": true,
+        "distinct_states": 10,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "55f3741adb232c1c57626bfd84ada6e7475638e72ee5ee6c2c7dd5a0011d57fb",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_timeout_seal",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoWriteAfterRetirement",
+        "expected_violation_kind": "invariant",
+        "passed": true,
+        "distinct_states": 33,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "04838f79e6a3c22ed422e9a10e7db98cdb2ef88720594b2f866c3756baf01cdb",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_crash_safe_leak",
+        "case_kind": "positive",
+        "expected_violation": null,
+        "expected_violation_kind": null,
+        "passed": true,
+        "distinct_states": 4,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "31fddf84de560f51ecba07f6feef87bdcaab20e134a2ce0232039e0e64f1342e",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_dead_has_inflight",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoLiveWriterRetired",
+        "expected_violation_kind": "invariant",
+        "passed": true,
+        "distinct_states": 8,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "abbef7116a847e86a7990fcd41f78bd2fd09909cafbf42f56f801b8267d1f615",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_dead_late_write",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoWriteAfterRetirement",
+        "expected_violation_kind": "invariant",
+        "passed": true,
+        "distinct_states": 12,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "0c6b5befee9e8fe3a6437057180dd519220abbce1a2f455a3fc1593adfc719db",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      },
+      {
+        "case": "writer_crash_no_retirement",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "RequiredProgress",
+        "expected_violation_kind": "temporal",
+        "passed": true,
+        "distinct_states": 4,
+        "spec_sha256": "ca24e05fa821e1783d2b8a94fbbe9378ee7cae68c75119f537afb69c039663e0",
+        "config_sha256": "9661020082c1ac6c28132d344d23308c052283ace3c1aeaa34f4889ae890c7ff",
+        "environment_sha256": {
+          "verification/gc/tla/EnvironmentWriter.tla": "14239830b35f36930b29bdb3b3c2731e69388297d387f4c76addc7c7874de37c",
+          "verification/common/tla/EnvironmentProgress.tla": "db2b234d42ca9046d68b69fa7ab67446b5b8b8acae74e079f8244dbf1600360a"
+        }
+      }
+    ],
+    "environment_registry_sha256": "0c2d0d8c7fd8e7e0c47ceb65fadbff9d92e11a260e60680bfa4eb09f8c37cb01",
+    "note": "Writer checks preceded unrelated catalog registry updates; source and imported environment hashes still match."
+  },
+  "native": {
+    "unit": 53,
+    "integration": 13,
+    "passed": true,
+    "command": "cargo test --locked --no-default-features",
+    "scope_note": "Native tests and wheel compiled the same runtime bodies before a proof-only lemma rename; subsequent changes were erased proof code, registry and documentation."
+  },
+  "python": {
+    "passed": 181,
+    "wheel": "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl",
+    "wheel_sha256": "b89b19b35213bccd58c9b73820128d9108bd6b3429358f8e37f611505378426b",
+    "tests": [
+      "test_catalog_encoding.py",
+      "test_wal_recovery.py",
+      "test_gc_batch.py",
+      "test_online_gc.py",
+      "test_commit_protocol.py",
+      "test_durable_handoff.py",
+      "test_staging_consumption.py",
+      "test_resume_workflow.py"
+    ]
+  },
+  "checks": {
+    "clippy_default": "passed",
+    "clippy_python": "passed",
+    "format": "passed",
+    "environment_manifest": "56 contracts, 47 consumers"
+  },
+  "performance": "Not run; correctness work has priority.",
+  "remaining": [
+    "Native namespace/cache and bulk-set adapter conformance",
+    "Initial/append caller establishment of interpreted history, serialization and normalization",
+    "Native File, buffering, lock/open and durable result correspondence",
+    "Complete Coordinator business replay and distributed/GC composition",
+    "Executable crashed-writer retirement with durable fencing and in-flight draining"
+  ],
+  "excluded_results": [
+    "Draft Verus run rejected opaque public cache field specification; not a semantic negative",
+    "Draft negative runner encountered an ambiguous recover function name; not a semantic negative",
+    "Initial wheel command used an unavailable interpreter; final CPython 3.12 build passed"
+  ],
+  "cargo_lock_sha256": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+  "environment_error_effects": {
+    "positive_verified": 307,
+    "environment_registry_sha256": "4b73caf33ac4e358b05fe9610d66317cea6e42e33ad2bd6dc04d0b2c8f3e2353",
+    "source_sha256_matches_main_proof": true,
+    "cases": [
+      {
+        "name": "environment_gc_batch_unlink_lies",
+        "passed": true,
+        "verified": 3,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "collect",
+        "verification_module": "gc_batch",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/gc_batch.rs": "47a755b792712337327538292833c68b69b3e735e52c8029c4eb495265edc064"
+        }
+      },
+      {
+        "name": "environment_gc_batch_wrong_parent",
+        "passed": true,
+        "verified": 3,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "collect",
+        "verification_module": "gc_batch",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/gc_batch.rs": "4c8f915807b9a29c97d904517c42c764af179943c0c3a02d8f0b83df141a0faa"
+        }
+      },
+      {
+        "name": "environment_gc_batch_sync_lies",
+        "passed": true,
+        "verified": 3,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "collect",
+        "verification_module": "gc_batch",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/gc_batch.rs": "4588f5615b3ac3f307d7b8060f36a49caa98b3c6b9ae8ac001bd6cd512fa9d6a"
+        }
+      },
+      {
+        "name": "environment_gc_batch_receipt_lies",
+        "passed": true,
+        "verified": 3,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "collect",
+        "verification_module": "gc_batch",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/gc_batch.rs": "0169ac42c18181bf609ef2c201ddb35b339cbb626e887bba8845b16108cef08b"
+        }
+      },
+      {
+        "name": "environment_gc_batch_receipt_loses_durability",
+        "passed": true,
+        "verified": 3,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "collect",
+        "verification_module": "gc_batch",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/gc_batch.rs": "9b27b292456b52dd688b218e821864670568f9ad56099715c96f34f838c71639"
+        }
+      },
+      {
+        "name": "environment_replay_target_partial_success",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "wal_recovery",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_device.rs": "8eed8ce9dd9b5dc3efe2e9ed16f8317ed0f57dd691458915b35541609407accc"
+        }
+      },
+      {
+        "name": "environment_replay_target_changes_context",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "wal_recovery",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_device.rs": "f6b8d71eca52e8c73ab5ea81f1ff570c936aa2f852007367a6a610ad838c9919"
+        }
+      },
+      {
+        "name": "environment_recovery_omits_complete",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_recovery.rs": "16922de5d4be66a4e21d84b999279dfccae4f307959c181ad683637921953478"
+        }
+      },
+      {
+        "name": "environment_recovery_omits_context",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_recovery.rs": "c932cf9ace7abf319cba68d358348b56ab551024e866b729f414c8e871fa86bf"
+        }
+      },
+      {
+        "name": "environment_recovery_omits_durable",
+        "passed": true,
+        "verified": 0,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "recover",
+        "verification_module": "catalog_target",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/wal_recovery.rs": "32e55aad0ba475010893ce518d28f47736f4837ae0f7d99adce72e4913c9ed33"
+        }
+      },
+      {
+        "name": "environment_commit_retain_lies",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "execute_commit",
+        "verification_module": "protocol",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/protocol.rs": "7b39dac301e4c355daec955153b095c4a4efe9a49633a1d5402a47f56d3576d5"
+        }
+      },
+      {
+        "name": "environment_commit_acceptance_lies",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "execute_commit",
+        "verification_module": "protocol",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/protocol.rs": "4fab277a51b8043924518680bfc390a0cc985203ceb77313f446ad5b0674a1bd"
+        }
+      },
+      {
+        "name": "environment_commit_uncertainty_reusable",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "execute_commit",
+        "verification_module": "protocol",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/protocol.rs": "a821a94c0cac7324be7745d0abcc0c03fc7adab6caab4e77b4c8c24c1a47bfa5"
+        }
+      },
+      {
+        "name": "environment_commit_apply_clears_guard",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "execute_commit",
+        "verification_module": "protocol",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/protocol.rs": "16bb7a384a1a02d57a5400a7ac97ccaf604a4a0619f3760ae386ac366d268ec5"
+        }
+      },
+      {
+        "name": "environment_commit_cleanup_lies",
+        "passed": true,
+        "verified": 1,
+        "errors": 1,
+        "case_kind": "environment_negative",
+        "verification_filter": "execute_commit",
+        "verification_module": "protocol",
+        "resource_failure": false,
+        "exit_status": 1,
+        "changed_source_sha256": {
+          "rust/protocol.rs": "4feea8960f95fbc37ce16f0451e078bfcc9bdf95d86242c78e0a0d5eae6b2f32"
+        }
+      }
+    ],
+    "additional_installed_wheel_tests": {
+      "passed": 47,
+      "tests": [
+        "test_gc_receipts.py",
+        "test_commit_consumption.py"
+      ]
+    }
+  }
+}

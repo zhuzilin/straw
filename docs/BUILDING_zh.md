@@ -1,5 +1,7 @@
 # 二进制 wheel 与源码构建
 
+wheel 工作流首先调用同一提交的完整测试工作流。全部 TLA+ 模型与负例、全部 Verus 生产代码证明与语义负例、环境契约清单、格式检查、Clippy、Rust 测试及 Python 3.10–3.13 的 wheel 测试都必须通过，之后才能上传 wheel 或源码包。发布到 PyPI 还要求构建产物通过 smoke 和源码包重建检查。验证失败、取消、跳过或超时都会阻止通过门禁。TLA+ 用例和 Verus 负例各分成 16 个互不重叠的组，每个 Verus 组也验证完整正向生产代码；发布被阻止时仍保留验证报告和错误日志。
+
 [English](BUILDING.md)
 
 ## 使用者：安装二进制包
@@ -27,7 +29,7 @@ python -m pip install ./straw_queue-*.whl
 
 ```sh
 python -m pip install build maturin twine
-python -m build --wheel --sdist
+python tools/release_build.py python -m build --wheel --sdist
 python -m twine check dist/*
 ```
 
@@ -37,11 +39,13 @@ python -m twine check dist/*
 
 ```sh
 python -m pip install 'maturin[zig,patchelf]>=1.12,<2'
-maturin build --release --locked --strip --zig \
+python tools/release_build.py maturin build --release --locked --strip --zig \
   --compatibility manylinux_2_28 --out dist
 ```
 
 也可使用 [wheel 工作流](../.github/workflows/wheels.yml)中的 manylinux 容器构建，遵循 [maturin 分发指南](https://www.maturin.rs/distribution.html)。绑定使用 Python buffer API，所以 wheel 区分解释器版本；项目不宣称用一个 ABI3 wheel 支持所有解释器。
+
+发布构建包装器从当前构建环境生成路径映射，移除 Rust 编译产物中的本机 home、Cargo、工具链和源码目录前缀；CI 使用同样的映射。上传前由 `tools/check_artifact_privacy.py` 检查 wheel/源码包成员，只报告位置与类型，不打印匹配的敏感值。源码扫描和产物扫描分别执行；模式检查不能证明所有可能的秘密都不存在。
 
 ## 检查可分发产物
 
@@ -59,7 +63,7 @@ python tools/check_wheel.py dist/<the-compatible-wheel>.whl \
 还应验证仅用源码包就能重新构建：
 
 ```sh
-python -m pip wheel --no-deps dist/straw_queue-*.tar.gz --wheel-dir rebuilt
+python tools/release_build.py python -m pip wheel --no-deps dist/straw_queue-*.tar.gz --wheel-dir rebuilt
 ```
 
 这一步在装有 Rust 的构建机器上执行；二进制使用者不需要源码包。生成的 wheel、本地实验日志、数据集和训练输出不应进入源码版本管理或源码发行包。

@@ -1,0 +1,69 @@
+{
+  "passed": true,
+  "workers_exited_cleanly": true,
+  "cleaned": true,
+  "metric": "fsync return to validated reply; includes notification, open/read/hash and reply",
+  "quantiles": "nearest rank; successful reads only; failures reported separately",
+  "payload_bytes": 65536,
+  "samples_per_mode": 1000,
+  "summary": {
+    "fsync_open": {
+      "publications": 1000,
+      "reads": 3000,
+      "reads_with_failed_attempts": 0,
+      "failed_reads": 0,
+      "failure_observations": {},
+      "fsync_ms": {
+        "n": 1000,
+        "p50": 16.809653,
+        "p95": 23.016149,
+        "p99": 29.629986,
+        "max": 82.205328
+      },
+      "fsync_to_ack_ms": {
+        "n": 3000,
+        "p50": 2.199861,
+        "p95": 5.085321,
+        "p99": 9.514881,
+        "max": 60.70249
+      },
+      "reader_probe_ms": {
+        "n": 3000,
+        "p50": 1.990665,
+        "p95": 4.596043,
+        "p99": 9.296258,
+        "max": 60.591412
+      }
+    },
+    "close_reopen": {
+      "publications": 1000,
+      "reads": 3000,
+      "reads_with_failed_attempts": 0,
+      "failed_reads": 0,
+      "failure_observations": {},
+      "fsync_ms": {
+        "n": 1000,
+        "p50": 17.020812,
+        "p95": 23.518108,
+        "p99": 32.159692,
+        "max": 87.407705
+      },
+      "fsync_to_ack_ms": {
+        "n": 3000,
+        "p50": 2.335005,
+        "p95": 5.198898,
+        "p99": 9.035416,
+        "max": 27.407662
+      },
+      "reader_probe_ms": {
+        "n": 3000,
+        "p50": 2.089528,
+        "p95": 4.709734,
+        "p99": 7.914257,
+        "max": 27.281967
+      }
+    }
+  },
+  "source_sha256": "0f17b581b14c8cace8bc8e5253e0a333578b7146eba37a7401a78232298a8237",
+  "node_count": 4
+}

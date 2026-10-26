@@ -4,6 +4,10 @@
 
 状态：实验性基础设施，尚未获得生产环境持久性认证。Rust 实现、有限协议模型和真实文件系统测试提供不同层次的证据，任何单一层次都不能证明整个系统。本文说明当前实现及仍需验证的部分。
 
+已加入 [TLA+ 模型检查](FORMAL_VERIFICATION_zh.md)，覆盖读端分区可见性和有限的所有权/GC 交错；正常协议和负向对照一起运行。它补充下文的独立 Python 模型，并提供弱公平性条件下的有限重试终止检查，不是 Rust 的机械细化证明。
+
+提交／GC 控制器和候选选择已有 [Verus 一致性证明](FORMAL_VERIFICATION_zh.md#验证分层与当前覆盖范围)，I/O 适配与 replay 仍在证明边界之外。GC 对没有完成 receipt 的 tombstone，即使文件已不存在，也会重试父目录同步；unlink 成功后同步失败不能证明删除持久化。目录同步失败继续上报，不重复计数已删除的字节。
+
 ## 参考工作与 straw 的取舍
 
 | 领域 | 一手参考 | 借鉴内容与边界 |
@@ -24,12 +28,12 @@
 - 每个队列只有一个由外部 fencing 保证唯一的协调器。`exclusive_owner` 记录外部保证，非空字符串本身不执行 fencing。未实现自动选主、共识或容忍网络分区的故障切换。
 - 多个队列可通过 `Coordinator(..., queue_id=..., namespace=True)` 共享不可变存储池/run，各有独立 journal，池共用一个保存持久化 owner 集合与 pack 状态的 `storage.log`。从创建池时启用 GC，尚不支持迁移已有的未跟踪队列。队列/staging owner 名称属于内部协议，应用不能直接覆盖或释放。
 - Catalog 用跨客户端 advisory file lock 串行化元数据修改与回收，全部 writer/collector 都必须参与。同一 inode 不重命名、不替换。持锁后重新打开日志执行 I/O，不假设旧句柄会自动消除远端缓存影响。
-- 支持 Linux/POSIX。文件 fsync 使之前的字节持久化并可见，目录 fsync 使新目录项持久化；底层服务必须真正实现这些保证。错误会中止操作，但 sync 失败不意味着没有字节被持久化。
+- 支持 Linux/POSIX。文件 fsync 使之前的字节持久化；读端可见性可能需要有界的 reopen/revalidation，目录 fsync 使新目录项持久化；底层服务必须真正实现这些保证。错误会中止操作，但 sync 失败不意味着没有字节被持久化。
 - JuiceFS 部署需要在实际客户端/服务上验证分布式锁、fsync 和 close-to-open 行为，并禁用 writeback/open-cache。见 [JuiceFS 缓存约定](https://juicefs.com/docs/community/guide/cache/)。一次四客户端负载成功，只能证明该次运行，不能认证存储服务掉电安全。
 - 载荷与引用不可变，pack 路径使用新 UUID，不复用已回收路径，不原地覆盖张量。COW 目前复制整个**被修改张量**，不是 chunk/page 级 COW。
 - Manifest 依赖图描述可达性。序列化后的引用字节本身不是生命周期所有者。Reader 必须由任务、未完成 batch、显式 `pin`、其他队列或保留的 checkpoint 保护。
 
-客户端可能仍缓存另一个客户端已删除 pack 的属性。持久化 tombstone 之后，`unlink` 返回 `ENOENT` 视为幂等成功，不再重复计算回收文件/字节。其他 unlink 错误仍必须报错。`verification/gc_cross_client.py` 在 JuiceFS 上复现过实际的 stat 成功后 `unlink(ENOENT)`。确定性故障测试也覆盖这一边界，并确认无关 unlink 错误会向上传播。
+客户端可能仍缓存另一个客户端已删除 pack 的属性。持久化 tombstone 之后，`unlink` 返回 `ENOENT` 视为幂等成功，不再重复计算回收文件/字节。其他 unlink 错误仍必须报错。`verification/gc/probes/gc_cross_client.py` 在 JuiceFS 上复现过实际的 stat 成功后 `unlink(ENOENT)`。确定性故障测试也覆盖这一边界，并确认无关 unlink 错误会向上传播。
 
 ## 持久化顺序与确认
 
@@ -68,7 +72,8 @@ Checkpoint 是独立 owner。发布外部 checkpoint 指针前先保存根；覆
 ```
 candidates = sealed packs - union(all owners' transitive pack closures)
 append durable tombstones for candidates; fsync
-unlink candidates; fsync parent directories
+unlink pending tombstones; fsync each affected parent directory
+append completed reclamation receipts; fsync (keep permanent tombstones)
 ```
 
 Retain 拒绝 tombstone 路径。Collector 在标记后、unlink 前死亡，后续 GC 会重试 unlink。任何存活 extent 都会保留整个 pack。不会根据目录扫描猜测未登记 pack 已死亡。离线 orphan 检查器拒绝共享 catalog/多队列根。
@@ -87,11 +92,11 @@ Retain 拒绝 tombstone 路径。Collector 在标记后、unlink 前死亡，后
 
 | 层次 | 当前提供 | 尚不能证明 |
 |---|---|---|
-| 有限协议模型 | `verification/ownership_model.py`：两个队列、一个不可变 pack、一个 reader、一个 checkpoint、一次崩溃的固定点探索；五种不安全修改（包括回退游标却未重新登记引用）必须产生反例。 | 不是 TLA+/TLAPS、无界或 Rust refinement 证明。不含多 pack 依赖环、任意重试、文件系统缓存模型或活性证明。 |
-| Native 日志故障注入 | `verification/crash_campaign.py`：两种 WAL 中新帧的每字节前缀、每字节一次 XOR 修改；catalog/队列 WAL 边界子进程突然退出后恢复/GC。 | 前缀持久化只是一种存储故障模型。进程退出后内核仍存活，不模拟设备扇区撕裂、块持久化重排或服务器故障。 |
+| 有限协议模型 | `verification/protocol/checks/ownership_model.py`：两个队列、一个不可变 pack、一个 reader、一个 checkpoint、一次崩溃的固定点探索；五种不安全修改（包括回退游标却未重新登记引用）必须产生反例。 | 不是 TLA+/TLAPS、无界或 Rust refinement 证明。不含多 pack 依赖环、任意重试、文件系统缓存模型或活性证明。 |
+| Native 日志故障注入 | `verification/wal/checks/crash_campaign.py`：两种 WAL 中新帧的每字节前缀、每字节一次 XOR 修改；catalog/队列 WAL 边界子进程突然退出后恢复/GC。 | 前缀持久化只是一种存储故障模型。进程退出后内核仍存活，不模拟设备扇区撕裂、块持久化重排或服务器故障。 |
 | 回归/集成 | Rust 测试、驱动 native 核心的 Python 测试、可执行记录/张量/队列示例。 | 有限示例不能证明完备性。 |
 | 四客户端存储负载 | `python -m straw.benchmark run --online-gc ...`：并发读写/回收，reader 确认后测量实际回收。 | 新路径不代表冷缓存，系统调用/应用载荷速率不等于后端设备吞吐。 |
-| 属性缓存与根规模检查 | 在不同文件系统客户端运行 `verification/gc_cross_client.py` 和 `verification/gc_scale.py`。 | 有界运行不能认证任意挂载配置、服务故障或无界历史。 |
+| 属性缓存与根规模检查 | 在不同文件系统客户端运行 `verification/gc/probes/gc_cross_client.py` 和 `verification/gc/probes/gc_scale.py`。 | 有界运行不能认证任意挂载配置、服务故障或无界历史。 |
 
 训练/恢复测试属于使用 straw 的应用。它们提供有用的集成证据，但不是核心正确性证明。详见[应用边界](APPLICATIONS_zh.md)与[验证命令](VERIFICATION_zh.md)。
 
@@ -101,8 +106,8 @@ Retain 拒绝 tombstone 路径。Collector 在标记后、unlink 前死亡，后
 cargo test
 cargo clippy --all-targets --features python -- -D warnings
 python -m pytest
-python verification/ownership_model.py --output /tmp/straw-model.json
-python verification/crash_campaign.py --output /tmp/straw-crashes.json
+python verification/protocol/checks/ownership_model.py --output /tmp/straw-model.json
+python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
 
 Native 故障注入还接受 `--hosts <four hosts> --parent <shared mount>`，将交接用例分配到四个独立客户端。私有临时 root 自动删除，调用方把输出报告放在其外。
@@ -113,7 +118,7 @@ Native 故障注入还接受 `--hosts <four hosts> --parent <shared mount>`，�
 
 在宣称生产可用之前，应继续：
 
-- 扩大模型，包含多 pack/依赖、重试身份、协调器 epoch 和 checkpoint 替换；把公平性条件下的回收进展与安全分开检查。经过评审的 TLA+/PlusCal 规范与 TLC 运行可使模型更容易独立审查。
+- 扩大模型，包含多 pack/依赖、重试身份、协调器 epoch 和 checkpoint 替换；把公平性条件下的回收进展与安全分开检查。已加入的 TLA+ 规范可作为继续扩展的基础，当前范围见单独文档。
 - 在 Rust 核心引入小范围文件系统/时钟/调度器接口，以独立顺序参考模型为基准进行带 seed 的确定性仿真，重放失败 seed 并缩减为短历史。
 - 记录真实客户端请求/响应，按队列规范检查包含未完成操作的历史。[Knossos](https://github.com/jepsen-io/knossos) 可检查给定的线性化对象模型，但不会自动推断队列应该提供的约定。
 - 在隔离认证环境中中断客户端/存储服务、延迟或丢失 RPC 响应、注入 ENOSPC/EIO/short write，并测试 VM/设备掉电。不要给共享训练集群断电做实验。

@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-23",
+  "scope": "Anvil-style incremental commit/GC conformance, model safety and conditional progress; not whole Rust, replay or filesystem proof",
+  "verus": {
+    "passed": true,
+    "verified": 33,
+    "errors": 0,
+    "negative_controls": 12,
+    "source_sha256": {
+      "rust/bounds.rs": "830ca41f5d2ff90f118b9346565bad2b1e5086ca32debfec58a2fc1b62008543",
+      "rust/protocol.rs": "d8a1468a23a21f0e0db6c4e71ec6c20e3b2c090eb95107165390fbfed803781e",
+      "verification/control_plane.rs": "b7178f7f30f2f02879c10b2f781c27eb3cb93e6d828236403f36a6904e5a4486",
+      "verification/verus.rs": "d4555a20339ecc8c4d00187b4e11b30dc27143e0d5c1a90ea7cb5eca401ef6fe"
+    }
+  },
+  "tlc": {
+    "passed": true,
+    "cases": 28,
+    "gc_cases": [
+      {
+        "case": "gc_deletion",
+        "module": "GCDeletion",
+        "expected_violation": null,
+        "passed": true,
+        "exit_code": 0,
+        "timed_out": false,
+        "seconds": 0.54,
+        "spec_sha256": "af18ee8e081b049be98930f66cfecdbfa3e5a2142b432e8f237cac2b36154ddc",
+        "config_sha256": "afd9670db87c125d41cf05f0018bfab69e1303008df5cd0616f25fa8a369f4dd",
+        "log": "private-artifact-0090",
+        "generated_states": 25,
+        "distinct_states": 14
+      },
+      {
+        "case": "gc_missing_sync",
+        "module": "GCDeletion",
+        "expected_violation": "DurableCompletion",
+        "passed": true,
+        "exit_code": 12,
+        "timed_out": false,
+        "seconds": 0.573,
+        "spec_sha256": "af18ee8e081b049be98930f66cfecdbfa3e5a2142b432e8f237cac2b36154ddc",
+        "config_sha256": "73775e2070fee23d547a2c49d7a2f31cffacaba25ec525dcf22983ea1c9c8b04",
+        "log": "private-artifact-0091",
+        "generated_states": 20,
+        "distinct_states": 14
+      },
+      {
+        "case": "gc_unlink_before_mark",
+        "module": "GCDeletion",
+        "expected_violation": "DeleteAfterMark",
+        "passed": true,
+        "exit_code": 12,
+        "timed_out": false,
+        "seconds": 0.523,
+        "spec_sha256": "af18ee8e081b049be98930f66cfecdbfa3e5a2142b432e8f237cac2b36154ddc",
+        "config_sha256": "c8bb1fa47ff36281b207c917c86e09f0ed71246ad62f689a83e831eb0a9461cd",
+        "log": "private-artifact-0092",
+        "generated_states": 4,
+        "distinct_states": 4
+      },
+      {
+        "case": "gc_without_lock",
+        "module": "Ownership",
+        "expected_violation": "NoDanglingReferences",
+        "passed": true,
+        "exit_code": 12,
+        "timed_out": false,
+        "seconds": 0.723,
+        "spec_sha256": "cbd7e8195c61438b33d81e2ed9f8a51fe99ef11afa8af6d04ed8ed733cdbddc9",
+        "config_sha256": "83c6ee0b17e37ea1352413c8f7eabb73b989f1af1a08d71c1d497fdb5d6a64ab",
+        "log": "private-artifact-0093",
+        "generated_states": 20985,
+        "distinct_states": 3826
+      }
+    ]
+  },
+  "wheel": {
+    "sha256": "103957348e11bbb394f9a1a750d0a1eab8fcd701b9698319039e418c41fcd529",
+    "python_tests_passed": 309,
+    "native_tests_passed": 5,
+    "full_wheel_check_passed": true
+  },
+  "gc_four_clients": {
+    "report_path": "private-artifact-0094",
+    "report_sha256": "db317d12490e05511b01446f2e3fd6caddbf7846cd9299cfa154aac13706241c",
+    "native_hash_verified_on_each_host": true,
+    "concurrent_gc_passed": true,
+    "total_reclaimed_files": 1,
+    "directory_sync_retry_passed_hosts": 4,
+    "private_data_cleaned": true
+  },
+  "limitations": [
+    "GC uses one tiny pack, not a GC scale benchmark",
+    "Directory-sync failures are injected; no device or storage-service power loss",
+    "An initial remote setup used the globally installed same-version package; that run is rejected and archived separately under control-gc-setup-rejected",
+    "The 100 GB throughput measurement predates the control-plane refactor; it was not repeated or relabeled as current-controller performance"
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

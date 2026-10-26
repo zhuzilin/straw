@@ -17,8 +17,11 @@ from straw.errors import (
 def test_sparse_samples_share_a_file_and_old_extents_stay_immutable(tmp_path):
     store = SharedFilesystemStore(tmp_path, "run", segment_target_bytes=1024**2)
     refs = [store.publish([Record(f"sample-{i}", bytes([i]) * 1024)], submission_id=str(i)) for i in range(100)]
-    assert len(list(tmp_path.rglob("*.pack"))) == 1
-    assert len(list(tmp_path.rglob("*.*"))) == 1
+    packs = list((tmp_path / "raw").rglob("*.pack"))
+    assert len(packs) == 1
+    # Writer recovery has separate durable control files. All payloads and
+    # manifests still occupy exactly one file, with no leftover private files.
+    assert [path for path in (tmp_path / "raw").rglob("*") if path.is_file()] == packs
     reader = SharedFilesystemStore(tmp_path, "run")
     for i, ref in enumerate(refs):
         assert next(reader.read(ref)).payload == bytes([i]) * 1024

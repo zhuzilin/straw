@@ -101,6 +101,7 @@ Benchmark 会校验读取结果，测量持久化发布与接收延迟，报告�
 - [记录、张量、任务、恢复与 GC](docs/USAGE_zh.md)
 - [文件系统部署与文件数规划](docs/FILESYSTEM_zh.md)
 - [协议、参考工作与正确性边界](docs/PROTOCOL_AND_VERIFICATION_zh.md)
+- [TLA+ / Verus 形式化验证](docs/FORMAL_VERIFICATION_zh.md)：分层覆盖、实际 Rust 证明、反例与边界
 - [可执行验证](docs/VERIFICATION_zh.md)与[二进制格式](docs/FORMAT_zh.md)
 - [构建 wheel 与发布检查](docs/BUILDING_zh.md)
 - [更新日志](CHANGELOG_zh.md)
@@ -109,7 +110,7 @@ Benchmark 会校验读取结果，测量持久化发布与接收延迟，报告�
 ## GitHub 构建与测试
 
 - [全套测试](.github/workflows/tests.yml)：Rust 测试、格式检查和 Clippy，以及 CPython 3.10–3.13 下针对已安装 wheel 的全部 Python 测试、所有权模型、故障注入、示例和有界 I/O/GC benchmark。
-- [Wheel 构建](.github/workflows/wheels.yml)：构建并验证 CPython 3.10–3.13 的 Linux x86_64 wheel（manylinux/glibc 2.28+），同时生成源码包并检查能否重新构建。从工作流运行页面的 **Artifacts** 下载产物。推送版本 tag 时，通过 Trusted Publishing 将已验证产物发布到 PyPI。
+- [Wheel 构建](.github/workflows/wheels.yml)：构建并验证 CPython 3.10–3.13 的 Linux x86_64 wheel（manylinux/glibc 2.28+），同时生成源码包并检查能否重新构建。从工作流运行页面的 **Artifacts** 下载产物。推送版本 tag 时，通过 Trusted Publishing 将已验证产物发布到 PyPI；同一提交的完整验证工作流必须先通过，才能上传发布产物。
 
 两条工作流都可以通过 **Actions → 选择工作流 → Run workflow** 手动触发。全套测试还会在 push 和 pull request 时运行；wheel 构建会在 pull request 和 `v*` tag 时运行。托管 CI 使用本地文件系统和 CPU PyTorch；多客户端 JuiceFS 部署验证与 GPU 训练使用[独立检查](docs/VERIFICATION_zh.md)。详见[构建与发布说明](docs/BUILDING_zh.md)。
 

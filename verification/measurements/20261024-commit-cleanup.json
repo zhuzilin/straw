@@ -1,0 +1,239 @@
+{
+  "date": "2026-10-24",
+  "passed": true,
+  "defect": "After durable queue acceptance, failed staging consumption was forgotten by cached same-ID retries and business-only recovery. Cancellation/GC left a global staging owner and data file.",
+  "change": "A StagingHandoff marker bound to queue prefix, WAL sequence and business events persists acceptance cleanup intent. Admission/recovery drains pending handoffs before new operations or cached results. Catalog consume_once atomically records dependency recipes, owner release and a consumed_handoffs receipt, so completed handoffs cannot consume later staging.",
+  "identities": {
+    "baseline": {
+      "wheel_sha256": "568cf75b48ab9e6529eef9b1a81ce2b350f935fafc77f640c889f2cfab9c6c82",
+      "native_sha256": "4a84ad5f8c83e65debaa21d40971af94804e1c69c1d90dc08bf447ae711ee8a8"
+    },
+    "fixed": {
+      "wheel_sha256": "617e10f7b61101f403a2df207fe097c91194bfb7bf7c4ced1abbbe887f951522",
+      "native_sha256": "53acf9948657b292d16fb964f23559635d768fbdeddc5479b556c9e8835258b9"
+    }
+  },
+  "runtime_source_sha256": {
+    "Cargo.toml": "c766388a5ef13a0006d43cf6f75c5991c7e281e77c3111355c8d89c8750303a8",
+    "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/bounds.rs": "15abce726004eaed9838a09754c5bb55bafd58538b3894c013ad2d32f2a50002",
+    "rust/consumption.rs": "4de026dcdf77a27bac0c3144e6edb9e92c5b7beaf9538d40b844730ea0801cc9",
+    "rust/coordinator.rs": "76ae5d524ea4416c0539b58e0882bbf08eb3dcbea6e5995a10a0ab20fa218968",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/gc.rs": "51c878f7929f29197f579575e5ff087cde90e9c3307e0e1774bf96fa1fce0ff3",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+    "rust/lib.rs": "0008755cf1a55df37c86259f68024f96426a6b5bba62a24aef44d366e4ac7654",
+    "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+    "rust/python.rs": "44e37f2aeebdb192eca690cd5f92e1a8adaaeebcc4655ae8ba9db69b647e4f9a",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/store.rs": "04673e551614dfad4b95e53f1de36b22514bcfb35a7e8457d0476b8d27f7006d",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+    "src/straw/__init__.py": "67f0f297afdfe971a786e9cfe17e296fa317af37e042d5a708a36de77cd091ee",
+    "src/straw/backend.py": "5783b9cadd23d1287e01c0bf0a4a27cee0243221878f4266c445a16d3423f436",
+    "src/straw/benchmark.py": "866d0c747f528c3496e9352ca624c08c2080d5918d64ba95d8478247d385fcdf",
+    "src/straw/coordinator.py": "b9aede16d0441212ae959d46a595dd6a8420164a843f2045455730912588cbf8",
+    "src/straw/errors.py": "a2286ad7a09082d977553575fcc80e68c11d4aae473dabde7db10868e28d93ad",
+    "src/straw/inspect.py": "6260fed0eed30bc35493a8eb4876526d9b451744b1c2f0bab3bd2fcf23973329",
+    "src/straw/journal.py": "67cf2563dd5b9852230cefb6f9e92d1919a381aedcd9b50cbbdbe5b3fb499886",
+    "src/straw/protocol.py": "1145127cc19329468a625dc37fad2c869a85a82cf3d876fa8a695449747f0ca1",
+    "src/straw/reporting.py": "52e30218cdca76d0389f50eb5e5b843105ebd84fbcffaec37a905a4421912c23",
+    "src/straw/rpc.py": "395e63859f4d2e6888db6d18600a38cf3c77b6f56d1cb66a4d86211b075354bb",
+    "src/straw/store.py": "20cd5cbcf3f153545559936809b27a5e5e8ccd32f474e887f74a5160dd6d9239",
+    "src/straw/tensor.py": "195e375c53a1cc87667726f805e9265878bb57d2f7a024fedfce58659044205e",
+    "src/straw/tracing.py": "ddcaa86dee95d2faa969183c318b8f8e53568454afb18f33d53e2d1119ea0aac"
+  },
+  "probe_format_equivalence": {
+    "executed_sha256": "6bccd16ab16bdd17d1e3611e81801ce11ac3bca7ddc88e8b8d341a51ebe3491d",
+    "formatted_sha256": "d80035d7a60bd855e5ca64189c61abbceb4233b9c763e2dc54089a27a016ab3b",
+    "ast_equal": true,
+    "reason": "Black formatting only after the remote probe copy; exact executed source retained in the measurement archive."
+  },
+  "environment_registry_sha256": "dbee58f4a9b18465fae24ee8088c8682fde5b8d0881c0de423bfbd59c4b56f86",
+  "environment_inventory": {
+    "contracts": 38,
+    "consumers": 33
+  },
+  "four_host": {
+    "totals": {
+      "baseline": {
+        "cases": 96,
+        "manual_fixture_data_files": 64,
+        "manual_fixture_data_bytes": 268579360,
+        "normal_gc_files": 32,
+        "normal_gc_bytes": 134289680
+      },
+      "fixed": {
+        "cases": 288,
+        "manual_fixture_data_files": 0,
+        "manual_fixture_data_bytes": 0,
+        "normal_gc_files": 288,
+        "normal_gc_bytes": 1208607120
+      }
+    },
+    "retry_groups": [
+      {
+        "cut": "after_storage_catalog_part",
+        "reopen": false,
+        "n": 48,
+        "p50_seconds": 0.04405520483851433,
+        "p99_seconds": 0.10600629448890686
+      },
+      {
+        "cut": "after_storage_catalog_part",
+        "reopen": true,
+        "n": 48,
+        "p50_seconds": 0.09259583242237568,
+        "p99_seconds": 0.14229175448417664
+      },
+      {
+        "cut": "after_storage_catalog_sync",
+        "reopen": false,
+        "n": 48,
+        "p50_seconds": 0.01545899361371994,
+        "p99_seconds": 0.06474409252405167
+      },
+      {
+        "cut": "after_storage_catalog_sync",
+        "reopen": true,
+        "n": 48,
+        "p50_seconds": 0.06290679797530174,
+        "p99_seconds": 0.12029962241649628
+      },
+      {
+        "cut": "before_staging_consume",
+        "reopen": false,
+        "n": 48,
+        "p50_seconds": 0.03638114966452122,
+        "p99_seconds": 0.11943616718053818
+      },
+      {
+        "cut": "before_staging_consume",
+        "reopen": true,
+        "n": 48,
+        "p50_seconds": 0.08522800356149673,
+        "p99_seconds": 0.3440264407545328
+      }
+    ],
+    "all_private_data_and_remote_environments_cleaned": true,
+    "scope": "2 KiB/8 MiB, standalone/64 MiB pack target, error before release/after partial catalog frame/after durable receipt, live/fresh retry. Four hosts; baseline once and fixed three repetitions per combination. Independent reader remains protected through queue pruning. Leftovers counted before separate manual fixture removal; fixed GC needs no manual data deletion.",
+    "latency_scope": "Each n=48 group mixes sizes/layouts/four hosts/three repetitions. Nearest-rank p99 is the maximum. Recovery includes close/reopen and epoch work. Correlated finite observations under uncontrolled background/cache state; no visibility or syscall deadline, bandwidth SLA or numeric environment premise follows."
+  },
+  "verification": {
+    "python_tests": 754,
+    "new_commit_cleanup_tests": 37,
+    "focused_python_tests": 101,
+    "native_tests": 38,
+    "verus_verified": 115,
+    "verus_semantic_negatives": 92,
+    "verus_environment_negatives": 4,
+    "tla_cases": 240,
+    "tla_case_kinds": {
+      "positive": 98,
+      "algorithm_negative": 125,
+      "environment_negative": 17
+    },
+    "temporal_negatives": 9,
+    "previous_tlc_inputs_and_state_counts_unchanged": 224,
+    "fmt_black_isort_and_clippy_default_and_python": true
+  },
+  "model": {
+    "positive_states": {
+      "commit_cleanup_before_release_FALSE": 18,
+      "commit_cleanup_before_release_TRUE": 18,
+      "commit_cleanup_after_release_FALSE": 16,
+      "commit_cleanup_after_release_TRUE": 16,
+      "commit_cleanup_success_FALSE": 16,
+      "commit_cleanup_success_TRUE": 16,
+      "commit_cleanup_restage": 18,
+      "commit_cleanup_reader": 18
+    },
+    "negative_cases": [
+      {
+        "case": "commit_cleanup_legacy",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "EventuallyResolved",
+        "expected_violation_kind": "temporal",
+        "distinct_states": 16
+      },
+      {
+        "case": "commit_cleanup_forget_replay",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "EventuallyResolved",
+        "expected_violation_kind": "temporal",
+        "distinct_states": 16
+      },
+      {
+        "case": "commit_cleanup_forget_error",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "CompletedConsumption",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 8
+      },
+      {
+        "case": "commit_cleanup_no_receipt",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "LateStagingPreserved",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 10
+      },
+      {
+        "case": "commit_cleanup_reconsume",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "LateStagingPreserved",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 10
+      },
+      {
+        "case": "commit_cleanup_receipt_only",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "CompletedConsumption",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 8
+      },
+      {
+        "case": "commit_cleanup_early_prune",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "PendingProtected",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 6
+      },
+      {
+        "case": "environment_handoff_receipt_lies",
+        "case_kind": "environment_negative",
+        "expected_violation": "CompletedConsumption",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 8
+      }
+    ],
+    "scope": "One already retained immutable root; serial catalog release/receipt, uncertain responses, retry/recovery, one later staging generation, an independent reader and GC. No arbitrary graph/multi-queue/pre-WAL/crashed-writer composition."
+  },
+  "rust_proof_scope": "Actual generic consumption::pop_completed preserves all pending work on failure and removes precisely the final item on confirmation. Actual record_receipts loop computes set union under String key laws. Input flags, hashing/JSON, syscall results, call placement and full Coordinator/catalog refinement remain unproved.",
+  "compatibility": "New coordinator reads unmarked legacy WAL without automatically consuming ambiguous staging; explicit release can clear known historical roots. Old coordinator fails closed with UnsafeRecovery for new StagingHandoff events. Old catalog GC can replay extension receipt fields. Receipt/graph/WAL histories have no compaction.",
+  "attempt_history": [
+    "Initial focused tests had eight fixture/assertion failures: seven fixtures did not create the lazy storage.log; one expected StorageUnavailable instead of the documented IndeterminateCommit after WAL sync. Corrected fixtures passed all 101 focused tests without runtime changes.",
+    "Initial compatibility harness expected CorruptData instead of the actual UnsafeRecovery for an unknown WAL event; corrected harness verifies fail-closed downgrade and legacy upgrade.",
+    "Initial cargo fmt invocation selected an unavailable stable toolchain; explicit installed Rust 1.90 succeeds.",
+    "Black formatting after remote probe copying is AST-identical; archive retains exact executed source and both hashes. Full proof reports retain exact source/config/environment inputs."
+  ],
+  "unproved": [
+    "Complete WAL/catalog byte adapters, real locking and durable receipt truthfulness",
+    "Full multi-queue dependency/GC/crash recovery composition, pre-WAL orphan cleanup and safe crashed-writer retirement",
+    "Generic control_plane progresses is still a direct premise rather than a real-I/O/fairness/retry derivation",
+    "No new 100 GB/TB physical transfer or hard latency/bandwidth claim; previous exact-binary 100 GB evidence remains separate"
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

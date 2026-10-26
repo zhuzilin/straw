@@ -1,0 +1,386 @@
+{
+  "date": "2026-10-24",
+  "passed": true,
+  "production_changed": false,
+  "change": "Add an executable native queue/large-record workflow and a composed TLA model. Strengthen historical replay from a counter/Boolean to distinct durable handoff IDs and item-by-item receipt checks during both reader recovery and post-GC recovery.",
+  "binary_sha256": "afbde9969686a2880acd7f3c22d831f23d36c2a77c9331cabc38c875fbc3b867",
+  "binary_source_sha256": {
+    "Cargo.toml": "423b67b343c404e341e73d90fd451989c78da990db7260fe57a8d731d3b53ddf",
+    "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+    "verification/queue_record_probe.rs": "e8669b1005415edc86d58305c4f9924d741dea89e006c3cdfc766e9aec079e3b",
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/bounds.rs": "15abce726004eaed9838a09754c5bb55bafd58538b3894c013ad2d32f2a50002",
+    "rust/consumption.rs": "4de026dcdf77a27bac0c3144e6edb9e92c5b7beaf9538d40b844730ea0801cc9",
+    "rust/coordinator.rs": "76ae5d524ea4416c0539b58e0882bbf08eb3dcbea6e5995a10a0ab20fa218968",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/gc.rs": "51c878f7929f29197f579575e5ff087cde90e9c3307e0e1774bf96fa1fce0ff3",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+    "rust/lib.rs": "0008755cf1a55df37c86259f68024f96426a6b5bba62a24aef44d366e4ac7654",
+    "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+    "rust/python.rs": "44e37f2aeebdb192eca690cd5f92e1a8adaaeebcc4655ae8ba9db69b647e4f9a",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/store.rs": "04673e551614dfad4b95e53f1de36b22514bcfb35a7e8457d0476b8d27f7006d",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73"
+  },
+  "environment_registry_sha256": "2aeb06ba24d00d80960651de4cf201764e225d38f7eaa3dd94dc40f28672440e",
+  "environment_inventory": {
+    "contracts": 38,
+    "consumers": 34
+  },
+  "history_recovery": [
+    {
+      "history": 0,
+      "setup_seconds": 1.69e-07,
+      "wal_bytes_before_read_ack": 7166,
+      "catalog_bytes_before_read_ack": 3850,
+      "fresh_recovery_seconds": {
+        "n": 80,
+        "p50": 0.054261128,
+        "p95": 0.084563847,
+        "p99": 0.099166404
+      },
+      "peak_recovery_rss_kib": 3484
+    },
+    {
+      "history": 128,
+      "setup_seconds": 15.499261869,
+      "wal_bytes_before_read_ack": 184920,
+      "catalog_bytes_before_read_ack": 35338,
+      "fresh_recovery_seconds": {
+        "n": 80,
+        "p50": 0.063584956,
+        "p95": 0.103438979,
+        "p99": 0.114786325
+      },
+      "peak_recovery_rss_kib": 6380
+    },
+    {
+      "history": 1024,
+      "setup_seconds": 104.910074184,
+      "wal_bytes_before_read_ack": 1433168,
+      "catalog_bytes_before_read_ack": 255754,
+      "fresh_recovery_seconds": {
+        "n": 80,
+        "p50": 0.095187435,
+        "p95": 0.131328085,
+        "p99": 0.1587035
+      },
+      "peak_recovery_rss_kib": 26420
+    }
+  ],
+  "large_record": {
+    "payload_bytes": 100000000000,
+    "data_file_bytes": 100000050717,
+    "publication_seconds": 271.268162609,
+    "publication_mib_s": 351.5614612618051,
+    "manifest_seconds": 0.247495591,
+    "interrupted_acceptance_seconds": 0.057328926,
+    "pending_cleanup_recovery_seconds": 0.09057226,
+    "history": 128,
+    "history_setup_seconds": 14.341463728,
+    "history_recovery_seconds": 0.094729538,
+    "writer_peak_rss_before_readers_kib": 11444,
+    "final_writer_rss_kib": 11444,
+    "aggregate_read": {
+      "seconds_including_ssh_and_supervision": 40.18189374357462,
+      "checked_bytes": 100000000000,
+      "returned_bytes": 100000000000,
+      "mib_s": 2373.3931568587395,
+      "chunks": 373,
+      "full_chunk_latency_seconds": {
+        "n": 372,
+        "p50": 0.406346246,
+        "p95": 0.445280516,
+        "p99": 0.531631817
+      }
+    },
+    "reader_peak_rss_kib": {
+      "client-3": 267288,
+      "client-4": 267328,
+      "client-1": 267340,
+      "client-2": 267308
+    },
+    "acknowledgements": [
+      {
+        "gc": {
+          "open_packs": 0,
+          "owners": 1,
+          "reclaimed_bytes": 0,
+          "reclaimed_files": 0,
+          "retained_packs": 2,
+          "tombstones": 0
+        },
+        "phase": "reader_ack",
+        "remaining": 3,
+        "seconds": 0.08334587,
+        "shard": 2
+      },
+      {
+        "gc": {
+          "open_packs": 0,
+          "owners": 1,
+          "reclaimed_bytes": 0,
+          "reclaimed_files": 0,
+          "retained_packs": 2,
+          "tombstones": 0
+        },
+        "phase": "reader_ack",
+        "remaining": 2,
+        "seconds": 0.078561139,
+        "shard": 3
+      },
+      {
+        "gc": {
+          "open_packs": 0,
+          "owners": 1,
+          "reclaimed_bytes": 0,
+          "reclaimed_files": 0,
+          "retained_packs": 2,
+          "tombstones": 0
+        },
+        "phase": "reader_ack",
+        "remaining": 1,
+        "seconds": 0.14852727,
+        "shard": 0
+      },
+      {
+        "gc": {
+          "open_packs": 0,
+          "owners": 0,
+          "reclaimed_bytes": 100000051877,
+          "reclaimed_files": 2,
+          "retained_packs": 0,
+          "tombstones": 2
+        },
+        "phase": "reader_ack",
+        "remaining": 0,
+        "seconds": 1.675332397,
+        "shard": 1
+      }
+    ],
+    "reclaimed": {
+      "open_packs": 0,
+      "owners": 0,
+      "reclaimed_bytes": 100000051877,
+      "reclaimed_files": 2,
+      "retained_packs": 0,
+      "tombstones": 2
+    },
+    "post_gc_recovery_seconds": 0.082348743,
+    "post_gc_recovery_samples": {
+      "n": 80,
+      "p50": 0.062695098,
+      "p95": 0.096291535,
+      "p99": 0.169141676
+    },
+    "retry_manifest_reads": 0,
+    "retry_catalog_appends": 0
+  },
+  "verification": {
+    "tla_cases": 256,
+    "tla_case_kinds": {
+      "positive": 105,
+      "algorithm_negative": 132,
+      "environment_negative": 19
+    },
+    "temporal_negatives": 12,
+    "verus_verified": 115,
+    "verus_semantic_negatives": 92,
+    "verus_environment_negatives": 4,
+    "previous_tlc_inputs_and_state_counts_unchanged": 240,
+    "integration_reuse": {
+      "passed": true,
+      "scope": "Reuse only the prior 754 Python / 38 native integration results for identical production Rust/Python, Cargo.lock and test inputs. Cargo.toml differs only by registering the new measurement example; no dependency, feature, library configuration or production body changed. The new example is separately built/executed and linted. Full current TLA/Verus reports are separate; no old registry hash is rewritten.",
+      "source_archive": "private-artifact-0016",
+      "original_environment_registry_sha256": "dbee58f4a9b18465fae24ee8088c8682fde5b8d0881c0de423bfbd59c4b56f86",
+      "python_tests": 754,
+      "native_tests": 38,
+      "wheel_identity": {
+        "wheel_sha256": "617e10f7b61101f403a2df207fe097c91194bfb7bf7c4ced1abbbe887f951522",
+        "native_sha256": "53acf9948657b292d16fb964f23559635d768fbdeddc5479b556c9e8835258b9"
+      },
+      "checked_source_sha256": {
+        "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+        "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+        "rust/bounds.rs": "15abce726004eaed9838a09754c5bb55bafd58538b3894c013ad2d32f2a50002",
+        "rust/consumption.rs": "4de026dcdf77a27bac0c3144e6edb9e92c5b7beaf9538d40b844730ea0801cc9",
+        "rust/coordinator.rs": "76ae5d524ea4416c0539b58e0882bbf08eb3dcbea6e5995a10a0ab20fa218968",
+        "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+        "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+        "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+        "rust/gc.rs": "51c878f7929f29197f579575e5ff087cde90e9c3307e0e1774bf96fa1fce0ff3",
+        "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+        "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+        "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+        "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+        "rust/lib.rs": "0008755cf1a55df37c86259f68024f96426a6b5bba62a24aef44d366e4ac7654",
+        "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+        "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+        "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+        "rust/python.rs": "44e37f2aeebdb192eca690cd5f92e1a8adaaeebcc4655ae8ba9db69b647e4f9a",
+        "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+        "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+        "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+        "rust/store.rs": "04673e551614dfad4b95e53f1de36b22514bcfb35a7e8457d0476b8d27f7006d",
+        "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+        "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+        "src/straw/__init__.py": "67f0f297afdfe971a786e9cfe17e296fa317af37e042d5a708a36de77cd091ee",
+        "src/straw/backend.py": "5783b9cadd23d1287e01c0bf0a4a27cee0243221878f4266c445a16d3423f436",
+        "src/straw/benchmark.py": "866d0c747f528c3496e9352ca624c08c2080d5918d64ba95d8478247d385fcdf",
+        "src/straw/coordinator.py": "b9aede16d0441212ae959d46a595dd6a8420164a843f2045455730912588cbf8",
+        "src/straw/errors.py": "a2286ad7a09082d977553575fcc80e68c11d4aae473dabde7db10868e28d93ad",
+        "src/straw/inspect.py": "6260fed0eed30bc35493a8eb4876526d9b451744b1c2f0bab3bd2fcf23973329",
+        "src/straw/journal.py": "67cf2563dd5b9852230cefb6f9e92d1919a381aedcd9b50cbbdbe5b3fb499886",
+        "src/straw/protocol.py": "1145127cc19329468a625dc37fad2c869a85a82cf3d876fa8a695449747f0ca1",
+        "src/straw/reporting.py": "52e30218cdca76d0389f50eb5e5b843105ebd84fbcffaec37a905a4421912c23",
+        "src/straw/rpc.py": "395e63859f4d2e6888db6d18600a38cf3c77b6f56d1cb66a4d86211b075354bb",
+        "src/straw/store.py": "20cd5cbcf3f153545559936809b27a5e5e8ccd32f474e887f74a5160dd6d9239",
+        "src/straw/tensor.py": "195e375c53a1cc87667726f805e9265878bb57d2f7a024fedfce58659044205e",
+        "src/straw/tracing.py": "ddcaa86dee95d2faa969183c318b8f8e53568454afb18f33d53e2d1119ea0aac",
+        "tests/native.rs": "6e1f66a03ce694255ddf5981597cf1f450a3feb8efb1b1be7609ea55c7d83976",
+        "tests/test_benchmark_profile.py": "3b33b179e38c5dd4603b9a06c5a8ff268b22ce8063d7d569a1c1152275154020",
+        "tests/test_catalog_encoding.py": "f31c98a80065f097cb4c462b16bbc54810723f793bf507ba055c6a7cf15d3ccc",
+        "tests/test_commit_consumption.py": "d0609fead503d7124e71065e0455100a553f8b0dd7f7c45cee2efc6ed0fe5366",
+        "tests/test_commit_protocol.py": "b95d568b15a81e11a015029f787517ded9505918a2ae3f47337cc4e311a07cd7",
+        "tests/test_consumer_rewind.py": "8de263cd6028a64b0b974bfde96dfa212739512456549d3c6542baa37996a2a0",
+        "tests/test_dependency_traversal.py": "43122d60421f0e7e62cefc1983090f3e218c59204670e3fe1e99714dfc2fd368",
+        "tests/test_extent_bounds.py": "b53ae566eab443ccb6bf9cd17d0b3c187bbc3d0af9da400e08f0016d303a9c4d",
+        "tests/test_extent_visibility.py": "91777e5d904589d4fef98186a9ff2a4c1b2a25e25d08cc091ed7f3fa0906d51a",
+        "tests/test_filesystem_queue.py": "da563d0d828263389a21aacf1d14b7853292c04b4c8bca663cd523c2ccab0c4b",
+        "tests/test_gc_extent_validation.py": "93252154da9943b9881711ca963dba7bbd187e6d39b2429ef6ff2fc2906be6d5",
+        "tests/test_gc_missing_parent.py": "1b6bc5797cfae889d1526386ff2ba416b0c7520c806cb9d01ffd82a8f536f78a",
+        "tests/test_gc_receipts.py": "1bf63270592e084bc448accdbe4a03bcfad4b2fdd5e18b8912962d59d99cf802",
+        "tests/test_incomplete_publication.py": "052205af97f60a355d0bf34c6243d719fda04a825655e5e5c6847bfd9d411609",
+        "tests/test_journal_contract.py": "506e0e15632bde175cccb5f2bcdc217a97c28064b9f65a4e8a4a42a52313532e",
+        "tests/test_lease_selection.py": "050fec2579c5f63910315d35ff39d1fb3a5f673a4aedb35c50a5c738998add32",
+        "tests/test_online_gc.py": "be7274a4cb7aa21441e54a3e14cb0799832f66b6d89b122aedf7c8bfd0e3822e",
+        "tests/test_packed_store.py": "19b0823524185f64c929c08c217df5a88b67bd9f702e74066a6f1a0a027e874f",
+        "tests/test_path_identity.py": "38f28af7cd5584ea4789705f05ffd4a389923140c12a8de15a657ebb3424bd74",
+        "tests/test_pending_publication.py": "2ea03c7c29b0b454b80e540f6fc618bdbfcc25761a8bf9d7ee2e57d0c1a4b42f",
+        "tests/test_provisional_holds.py": "8143472e3ece001bad068ba124d6b0ddfe096e56dd09ce10ffffa42019713382",
+        "tests/test_publication_handoff.py": "e415bdfc70f19a61bf88a9c0b0bdd19d86527c84f30cb796e0c2edb4d8bfaac0",
+        "tests/test_publication_preparation.py": "890a7b0d3006e909056b064334ff5ee40ef4f39d97de9b1d60ab0ba4d4e60b10",
+        "tests/test_read_session.py": "f0a77ff6d96243fc237984f37981ba5cb5e8d002b784da90587710c6eff04520",
+        "tests/test_staging_consumption.py": "a5798cc4418bca97756f51b864a675db45f5441de66e1886e04db087a04f0404",
+        "tests/test_streaming_write.py": "b15245fe341266ba99683f288050b2bf59babedec7356369fe57bb7f3740f178",
+        "tests/test_tensor.py": "ac43a732ac3484f7bff52edfff38ac806aac13480aa552de0481b327386c79bc",
+        "tests/test_unlimited_capacity.py": "a1d4ca309b5d7afc3d9208e9ef36008877b61b87d0d80559089678d8b233d826",
+        "tests/test_visibility_probe.py": "9e21acc7202c20884f45796fed331d3c6f839af2849e5a0e53284bd6c6c3113c",
+        "tests/test_writer_access.py": "928713b0253a0c12b175c7126657f716e37b662384b2662ff1b13af74cbbeb6d"
+      }
+    },
+    "new_probe_built_and_linted": true
+  },
+  "model": {
+    "positive_states": {
+      "queue_record_readers_1": 44,
+      "queue_record_readers_2": 56,
+      "queue_record_readers_4": 200,
+      "queue_record_history_0": 188,
+      "queue_record_history_128": 956,
+      "queue_record_history_1024": 6332,
+      "queue_record_reader_failure": 330
+    },
+    "negative_cases": [
+      {
+        "case": "queue_record_lost_intent",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "EventuallyOutcome",
+        "expected_violation_kind": "temporal",
+        "distinct_states": 186
+      },
+      {
+        "case": "queue_record_forget_last_ack",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "EventuallyOutcome",
+        "expected_violation_kind": "temporal",
+        "distinct_states": 196
+      },
+      {
+        "case": "queue_record_forget_receipts",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "EventuallyOutcome",
+        "expected_violation_kind": "temporal",
+        "distinct_states": 198
+      },
+      {
+        "case": "queue_record_cancel_drops_reads",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoLostReaders",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 46
+      },
+      {
+        "case": "queue_record_recover_drops_reads",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoLostReaders",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 46
+      },
+      {
+        "case": "queue_record_early_prune",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "NoLostReaders",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 46
+      },
+      {
+        "case": "queue_record_cleanup_failed_reader",
+        "case_kind": "algorithm_negative",
+        "expected_violation": "FailedProtected",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 92
+      },
+      {
+        "case": "environment_queue_record_early_ack",
+        "case_kind": "environment_negative",
+        "expected_violation": "NoLostReaders",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 497
+      },
+      {
+        "case": "environment_queue_record_receipt_lies",
+        "case_kind": "environment_negative",
+        "expected_violation": "NoUnconsumedStaging",
+        "expected_violation_kind": "invariant",
+        "distinct_states": 4
+      }
+    ],
+    "scope": "One immutable payload/manifest represented as one availability unit, one queue, 1/2/4 readers and finite successful handoff history. Distinct receipt IDs are retained and scanned in two recovery passes. No JSON bytes, allocator/heap bound, payload framing, physical bandwidth or full adapter refinement."
+  },
+  "all_shared_private_data_and_remote_programs_cleaned": true,
+  "manual_data_cleanup_files": 0,
+  "measurement_scope": [
+    "Native core, one 100 decimal GB raw record plus one manifest; no Python/FFI, physical TB write or general training-application throughput claim. Existing sparse 2 TiB offset evidence is separate.",
+    "Random 8 MiB pattern is repeated; pattern/checksum metadata preparation is excluded from publication timing. Publication includes hashing/framing/sync. Range reads authenticate all 100 GB in disjoint <=256 MiB returned buffers.",
+    "The initial queue error is after durable acceptance and before cleanup; fresh recovery completes it. Four input leases are cancelled and recovered before readers start. Acknowledgements follow verified successful remote exits, matching shard identities and byte coverage.",
+    "History workloads are real submit/cancel calls over the shared immutable root. The fresh coordinator samples run sequentially across hosts under exclusive ownership; each appends a new epoch, so WAL sizes grow between samples. Fresh instance does not imply cold storage caches.",
+    "Each history n=80 quantile pools four hosts and twenty repetitions; nearest-rank p99 is its maximum. Background load, caches and host repetitions are not controlled/independent. No observed latency becomes a hard environment deadline.",
+    "Formal verifiers also ran on the writer host during the large publication, without CPU isolation. A process/cgroup snapshot is archived as observation, not a bottleneck attribution."
+  ],
+  "attempt_history": [
+    "Initial workflow model only counted historical handoffs and used one receipt Boolean. Review found this insufficient to check a lost individual old receipt; final model stores per-ID receipts, scans every ID during both recoveries, and constrains pruning to admitted operations. Initial proof snapshots are retained separately.",
+    "History configurations were expanded to the actual 0/128/1024 workloads; early counter-only proof runs are not the final claim.",
+    "The first focused runner emitted a Python invalid-escape SyntaxWarning for a TLA operator string; changed it to a raw string without changing its value."
+  ],
+  "unproved": [
+    "Production Coordinator/WAL/catalog refinement, real file/directory durability and lock/fencing implementation",
+    "Actual caller completion/RPC truthfulness and arbitrary syscall/network termination",
+    "General concurrent multi-queue graphs, crashed-writer recovery and metadata compaction/memory bounds",
+    "No new production defect was reproduced in this workflow; this is not evidence that the system has no remaining bugs."
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

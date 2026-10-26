@@ -12,8 +12,9 @@ cargo fmt --check
 cargo clippy --all-targets --features python -- -D warnings
 cargo test --locked
 python -m pytest
-python verification/ownership_model.py
-python verification/crash_campaign.py --output /tmp/straw-crashes.json
+python verification/runners/check_tla.py  # Java 17+
+python verification/protocol/checks/ownership_model.py
+python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
 
 二进制 wheel 见[构建文档](docs/BUILDING_zh.md)，每类检查的边界见[验证文档](docs/VERIFICATION_zh.md)。机器地址、凭据、训练脚本、载荷和原始实验日志应保存在项目外。每次文件系统测试使用独立私有临时目录，限制数据规模，并在自有进程停止后清理。
@@ -25,3 +26,7 @@ python verification/crash_campaign.py --output /tmp/straw-crashes.json
 项目使用 [MIT 许可证](LICENSE)。
 
 用户与贡献者文档使用配套的英文 `.md` 和中文 `_zh.md`。行为或示例发生变化时同步更新两种语言，保留双向语言切换链接，并确保 API 名称、命令和协议常量一致。
+
+[TLA+ / Verus 规范与运行说明](docs/FORMAL_VERIFICATION_zh.md)包含模型假设、代码对应关系与必须失败的负向对照。
+
+修改环境假设时，同步更新 [`environment_contracts.json`](verification/environment_contracts.json) 中的稳定编号、[环境审查文档](docs/ENVIRONMENT_MODELS_zh.md)、消费该假设的模型和负向对照。区分算法策略、搜索边界、实测分位数与环境必需保证。

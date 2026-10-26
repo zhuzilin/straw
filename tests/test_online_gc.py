@@ -8,7 +8,7 @@ import torch
 
 from straw import Record, SharedFilesystemStore, TaskSpec
 from straw.coordinator import Coordinator
-from straw.errors import InvalidReference, StorageUnavailable, UnsafeRecovery
+from straw.errors import IdempotencyConflict, InvalidReference, StorageUnavailable, UnsafeRecovery
 from straw.inspect import inspect_run
 from straw.tensor import TensorRef, publish_tensors
 
@@ -70,6 +70,74 @@ def test_staging_and_open_pack_prevent_collection(tmp_path):
     assert s.collect_garbage()["reclaimed_files"] == 1
 
 
+@pytest.mark.parametrize("api", ["write_records", "record_set", "publish"])
+@pytest.mark.parametrize("target", [0, 1024 * 1024])
+def test_publication_finalizes_standalone_files_but_keeps_packs_appendable(tmp_path, api, target):
+    with store(tmp_path, segment_target_bytes=target) as s:
+        if api == "record_set":
+            raw = s.write_records([Record("raw", b"data")], submission_id="raw")
+            refs = [s.record_set(raw, submission_id="set")]
+        elif api == "write_records":
+            refs = s.write_records([Record("raw", b"data")], submission_id="raw")
+        else:
+            refs = [s.publish([Record("raw", b"data")], submission_id="raw")]
+        before = s.collect_garbage()
+        assert before["reclaimed_files"] == 0
+        assert before["open_packs"] == (0 if target == 0 else 1)
+        s.seal()
+        s.release_publications(refs)
+        assert s.collect_garbage()["reclaimed_files"] == (2 if api == "record_set" and target == 0 else 1)
+    with store(tmp_path) as fresh:
+        assert fresh.collect_garbage()["open_packs"] == 0
+        assert not list(tmp_path.rglob("*.sealed"))
+        assert not list(tmp_path.rglob("*.pack"))
+
+
+@pytest.mark.parametrize("api", ["write_records", "record_set", "publish"])
+@pytest.mark.parametrize(
+    "failed_phase",
+    ["before_publication_seal", "after_publication_seal", "before_storage_catalog_sync", "after_storage_catalog_sync"],
+)
+def test_publication_seal_failure_retries_without_losing_staging(tmp_path, api, failed_phase):
+    with store(tmp_path, segment_target_bytes=0) as s, store(tmp_path) as peer:
+        raw = s.write_records([Record("raw", b"data")], submission_id="raw") if api == "record_set" else None
+
+        def publish():
+            if api == "record_set":
+                return [s.record_set(raw, submission_id="retry")]
+            if api == "write_records":
+                return s.write_records([Record("r", b"data")], submission_id="retry")
+            return [s.publish([Record("r", b"data")], submission_id="retry")]
+
+        armed = False
+        fired = False
+
+        def fault(phase):
+            nonlocal armed, fired
+            if phase == "before_publication_seal":
+                armed = True
+                # Outside the catalog lock: GC sees staging before seal.
+                assert peer.collect_garbage()["reclaimed_files"] == 0
+            if armed and phase == failed_phase and not fired:
+                fired = True
+                raise OSError(5, "uncertain seal")
+
+        s.backend.fault = fault
+        with pytest.raises(StorageUnavailable, match="uncertain seal"):
+            publish()
+        assert fired
+        paths = set(tmp_path.rglob("*.sealed"))
+        assert peer.collect_garbage()["reclaimed_files"] == 0
+        s.backend.fault = lambda phase: None
+        refs = publish()
+        assert set(tmp_path.rglob("*.sealed")) == paths
+        assert peer.collect_garbage()["open_packs"] == 0
+        record = s.read_record(refs[0]) if api == "write_records" else next(s.read(refs[0]))
+        assert record.payload == b"data"
+        s.release_publications(refs)
+        assert peer.collect_garbage()["reclaimed_files"] == (2 if api == "record_set" else 1)
+
+
 def test_reader_pin_and_mixed_pack_hold_whole_file(tmp_path):
     s = store(tmp_path)
     refs = [s.publish([Record(str(i), b"data")], submission_id=str(i)) for i in range(2)]
@@ -120,6 +188,52 @@ def test_incomplete_destination_publication_keeps_dependency(tmp_path):
     source.release_publications([ref])
     assert source.collect_garbage()["reclaimed_files"] == 0
     assert next(source.read(ref)).payload == b"data"
+
+
+@pytest.mark.parametrize("api", ["publish", "record_set"])
+@pytest.mark.parametrize("conflict", ["remove", "replace"])
+def test_conflicting_retry_preserves_original_publication_dependencies(tmp_path, api, conflict):
+    with store(tmp_path) as source, store(tmp_path) as target:
+
+        def dependency(identity):
+            if api == "publish":
+                ref = source.publish([Record(identity, identity.encode())], submission_id=identity)
+            else:
+                (ref,) = source.write_records([Record(identity, identity.encode())], submission_id=identity)
+            source.seal()
+            return ref
+
+        original, alternate = dependency("original"), dependency("alternate")
+
+        def publish(refs):
+            if api == "publish":
+                return target.publish([Record("target", b"target")], submission_id="retry", dependencies=refs)
+            return target.record_set(refs, submission_id="retry")
+
+        def uncertain(phase):
+            if phase == "after_data_sync":
+                raise OSError(5, "uncertain publication")
+
+        target.backend.fault = uncertain
+        with pytest.raises(StorageUnavailable, match="uncertain publication"):
+            publish([original])
+        target.backend.fault = lambda phase: None
+        source.release_publications([original])
+        assert source.collect_garbage()["reclaimed_files"] == 0
+        with pytest.raises(IdempotencyConflict):
+            publish([] if conflict == "remove" else [alternate])
+        assert source.collect_garbage()["reclaimed_files"] == 0
+        result = publish([original])
+        target.seal()
+        source.release_publications([alternate])
+        # The successful handoff releases additional roots reserved by rejected
+        # retries, while staging keeps the original dependency and output live.
+        assert source.collect_garbage()["reclaimed_files"] == 1
+        assert list(target.read(result))
+        original_record = next(source.read(original)) if api == "publish" else source.read_record(original)
+        assert original_record.payload == b"original"
+        target.release_publications([result])
+        assert source.collect_garbage()["reclaimed_files"] == 2
 
 
 @pytest.mark.parametrize("replacement", ["absent", "directory"])
@@ -188,8 +302,8 @@ def test_recovered_gc_uses_durable_owners_without_reopening_live_payloads(tmp_pa
     assert next(s.read(ref)).payload == b"data"
 
 
-@pytest.mark.parametrize("damage", ["missing", "empty"])
-def test_gc_fails_before_unlink_when_a_live_root_loses_its_catalog_owner(tmp_path, damage):
+@pytest.mark.parametrize("operation", ["release", "replace"])
+def test_public_api_cannot_change_a_live_queue_owner(tmp_path, operation):
     from straw.protocol import digest
 
     s = store(tmp_path)
@@ -198,14 +312,12 @@ def test_gc_fails_before_unlink_when_a_live_root_loses_its_catalog_owner(tmp_pat
     q.submit_tasks("task", [TaskSpec("t", input_ref=ref)])
     s.seal()
     owner = f"queue:{digest(str(q.journal.path.parent.parent))}:{digest(dataclasses.asdict(ref))}"
-    # Deliberately violate the internal owner namespace to model inconsistent
-    # catalog/WAL recovery. Normal applications must not mutate queue owners.
-    if damage == "missing":
-        s.release(owner)
-    else:
-        s.retain(owner, [])
-    with pytest.raises(UnsafeRecovery, match="Live queue root"):
-        q.collect_garbage()
+    with pytest.raises(ValueError, match="reserved"):
+        if operation == "release":
+            s.release(owner)
+        else:
+            s.retain(owner, [])
+    assert q.collect_garbage()["reclaimed_files"] == 0
     assert next(s.read(ref)).payload == b"data"
     assert list(tmp_path.rglob("*.pack"))
     q.close()
@@ -274,3 +386,204 @@ def test_revoking_authorization_does_not_reclaim_a_reader_still_using_input(tmp_
     assert q.outstanding_reads() == ()
     assert q.collect_garbage()["reclaimed_files"] == 1
     q.close()
+
+
+def test_missing_tombstone_still_retries_failed_directory_sync(tmp_path):
+    s = store(tmp_path)
+    ref = s.publish([Record("r", b"garbage")], submission_id="write")
+    s.seal()
+    s.release_publications([ref])
+    path = tmp_path / ref.manifest.segment.path
+    sync_attempts = []
+
+    def failed_sync(phase):
+        if phase == "before_gc_directory_sync":
+            sync_attempts.append(phase)
+            raise OSError(5, "injected directory sync failure")
+
+    s.backend.fault = failed_sync
+    # Both calls must attempt the durability barrier, even though the first
+    # unlink has already made the name absent by the time the second GC starts.
+    for _ in range(2):
+        with pytest.raises(StorageUnavailable, match="directory sync failure"):
+            s.collect_garbage()
+        assert not path.exists()
+    assert len(sync_attempts) == 2
+    s.backend.fault = lambda phase: sync_attempts.append(phase) if phase == "before_gc_directory_sync" else None
+    result = s.collect_garbage()
+    assert len(sync_attempts) == 3
+    assert result["reclaimed_files"] == result["reclaimed_bytes"] == 0
+    with pytest.raises(InvalidReference, match="reclaimed"):
+        s.retain("late-owner", [ref])
+
+
+@pytest.mark.parametrize("failed_barrier", [None, 1, 2])
+def test_gc_batches_directory_barriers_and_retries_absent_names(tmp_path, failed_barrier):
+    paths = []
+    for writer in range(2):
+        with store(tmp_path) as s:
+            refs = []
+            for index in range(3):
+                ref = s.publish([Record(str(index), b"garbage")], submission_id=f"{writer}:{index}")
+                s.seal()
+                refs.append(ref)
+                paths.append(tmp_path / ref.manifest.segment.path)
+            s.release_publications(refs)
+    parents = {p.parent for p in paths}
+    assert len(paths) == 6 and len(parents) == 2
+    expected_bytes = sum(p.stat().st_size for p in paths)
+    with store(tmp_path) as collector:
+        barriers = []
+
+        def barrier(phase):
+            if phase == "before_gc_directory_sync":
+                # Every member's unlink precedes the shared directory barrier.
+                assert all(not p.exists() for p in paths)
+                barriers.append(phase)
+                if len(barriers) == failed_barrier:
+                    raise OSError(5, "injected batch sync failure")
+
+        collector.backend.fault = barrier
+        if failed_barrier:
+            with pytest.raises(StorageUnavailable, match="batch sync failure"):
+                collector.collect_garbage()
+            assert len(barriers) == failed_barrier
+            barriers.clear()
+            collector.backend.fault = lambda phase: (
+                barriers.append(phase) if phase == "before_gc_directory_sync" else None
+            )
+            result = collector.collect_garbage()
+            assert result["reclaimed_files"] == result["reclaimed_bytes"] == 0
+        else:
+            result = collector.collect_garbage()
+            assert result["reclaimed_files"] == len(paths)
+            assert result["reclaimed_bytes"] == expected_bytes
+        assert len(barriers) == len(parents)
+        barriers.clear()
+        assert collector.collect_garbage()["reclaimed_files"] == 0
+        # A durable completion receipt retires retry I/O, not the tombstones.
+        assert not barriers
+
+
+def test_gc_batch_retries_partial_unlinks_before_any_barrier(tmp_path):
+    with store(tmp_path) as s:
+        refs = []
+        for index in range(4):
+            refs.append(s.publish([Record(str(index), b"garbage")], submission_id=str(index)))
+            s.seal()
+        s.release_publications(refs)
+        paths = [tmp_path / ref.manifest.segment.path for ref in refs]
+        unlinks = []
+        barriers = []
+
+        def interrupt(phase):
+            if phase == "before_gc_unlink":
+                unlinks.append(phase)
+                if len(unlinks) == 3:
+                    raise OSError(5, "injected third unlink failure")
+            if phase == "before_gc_directory_sync":
+                barriers.append(phase)
+
+        s.backend.fault = interrupt
+        with pytest.raises(StorageUnavailable, match="third unlink failure"):
+            s.collect_garbage()
+        assert sum(not p.exists() for p in paths) == 2
+        assert not barriers
+        s.backend.fault = lambda phase: barriers.append(phase) if phase == "before_gc_directory_sync" else None
+        assert s.collect_garbage()["reclaimed_files"] == 2
+        assert all(not p.exists() for p in paths)
+        assert len(barriers) == 1
+
+
+def test_auto_discovery_cannot_downgrade_after_catalog_disappears(tmp_path):
+    with store(tmp_path) as source, SharedFilesystemStore(tmp_path, "pool") as target:
+        ref = source.publish([Record("r", b"keep")], submission_id="discovery")
+        source.seal()
+        target.retain("destination", [ref])
+        log = tmp_path / "storage.log"
+        saved = tmp_path / "storage.saved"
+        log.rename(saved)
+        try:
+            with pytest.raises(StorageUnavailable):
+                target.retain("second", [ref])
+            assert not log.exists(), "Do not create a replacement catalog"
+        finally:
+            saved.rename(log)
+        target.retain("second", [ref])
+        source.release_publications([ref])
+        target.release("destination")
+        assert source.collect_garbage()["reclaimed_files"] == 0
+        assert next(target.read(ref)).payload == b"keep"
+        target.release("second")
+        assert source.collect_garbage()["reclaimed_files"] == 1
+
+
+def test_auto_discovery_lookup_error_does_not_acknowledge_retain(tmp_path):
+    with store(tmp_path) as source, SharedFilesystemStore(tmp_path, "pool") as target:
+        ref = source.publish([Record("r", b"keep")], submission_id="discovery")
+        source.seal()
+        log = tmp_path / "storage.log"
+        saved = tmp_path / "storage.saved"
+        log.rename(saved)
+        log.symlink_to(log.name)  # ELOOP, not a legitimate absent catalog.
+        try:
+            with pytest.raises(StorageUnavailable):
+                target.retain("destination", [ref])
+            assert log.is_symlink()
+        finally:
+            log.unlink()
+            saved.rename(log)
+        target.retain("destination", [ref])
+        source.release_publications([ref])
+        assert source.collect_garbage()["reclaimed_files"] == 0
+        assert next(target.read(ref)).payload == b"keep"
+        target.release("destination")
+        assert source.collect_garbage()["reclaimed_files"] == 1
+
+
+@pytest.mark.parametrize("ending", ["cancel", "expire", "recover"])
+@pytest.mark.parametrize("acknowledgement", ["release", "retire"])
+def test_all_independent_progress_roots_survive_revocation_until_reader_ack(tmp_path, ending, acknowledgement):
+    s = store(tmp_path, segment_target_bytes=0)
+    refs = [
+        s.publish([Record(name, name.encode())], submission_id=name)
+        for name in ("initial", "middle", "latest", "peer")
+    ]
+    now = [0.0]
+    q = queue(s, "queue", clock=lambda: now[0], lease_seconds=1)
+    q.submit_tasks(
+        "inputs",
+        [TaskSpec("one", input_ref=refs[0], max_attempts=1), TaskSpec("two", input_ref=refs[3], max_attempts=1)],
+    )
+    first = q.acquire("first", task_ids=["one"]).assignments[0].lease
+    peer = q.acquire("second", task_ids=["two"]).assignments[0].lease
+    for request, ref in zip(("middle", "latest", "same-latest"), (refs[1], refs[2], refs[2])):
+        q.save_task_progress(first, request_id=request, input_ref=ref)
+    # These publications have no dependency edges: retaining only the latest
+    # continuation cannot incidentally keep the earlier reads alive.
+    readers = q._call("state", {})["readers"]
+    assert len(readers[first.attempt_id]["roots"]) == 3
+    s.seal()
+    if ending == "cancel":
+        q.cancel_task("one", request_id="cancel-one")
+        q.cancel_task("two", request_id="cancel-two")
+    elif ending == "expire":
+        now[0] = 2.0
+        assert not q.acquire("probe").assignments
+    else:
+        q.close()
+        q = queue(s, "queue", clock=lambda: now[0], lease_seconds=1, recover=True)
+    assert q.collect_garbage()["reclaimed_files"] == 0
+    for ref, name in zip(refs, ("initial", "middle", "latest", "peer")):
+        assert next(s.read(ref)).payload == name.encode()
+    if acknowledgement == "release":
+        q.release_task_reads([first, first])
+    else:
+        q.retire_worker("first")
+    assert q.outstanding_reads() == (peer,)
+    assert q.collect_garbage()["reclaimed_files"] == 3
+    assert next(s.read(refs[3])).payload == b"peer"
+    q.release_task_reads([peer])
+    assert q.collect_garbage()["reclaimed_files"] == 1
+    q.close()
+    s.close()

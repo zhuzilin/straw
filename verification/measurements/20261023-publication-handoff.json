@@ -1,0 +1,1184 @@
+{
+  "date": "2026-10-23",
+  "passed": true,
+  "bug": "After a complete file exists, failed stage/seal/internal-owner handoff cleared the effective unresolved state too early. Another request overwrote the retry cache; the original retry rewrote the extent and retained an unreachable old owner. An old successful cache could also bypass pending durability; closed publish/record_set could create dependency holds.",
+  "repair": "Preserve exact description, API and submission ID from complete-file construction through all handoff effects. Reject other requests before new holds; inspect pending before cached results; acknowledge only after outer staging and internal-owner release. Prevent seal from forgetting unresolved work; replay of acknowledged reclaimed records does not become a new unresolved request.",
+  "identities": {
+    "baseline": {
+      "wheel_sha256": "c8bf1d022761fa1196ee4373d6f11f19e285ea3d799ecb4d2cbbf0f4148b7381",
+      "native_sha256": "96558d232cbfef37d498ea3915dfdd0ef5283a2eae77ba8daedf84a123dc0351"
+    },
+    "fixed": {
+      "wheel_sha256": "abd9d101a4974791e99fe35b8b9c3a3a5391df3980764242c2679a8079743694",
+      "native_sha256": "d158d8408162b50a09c993703e6ec4a5d0143d83b5a8aff425af47f46ba4565a"
+    }
+  },
+  "environment_registry_sha256": "f4fd72aabbe85360f58cbb045c9549fb4ec4cd7ef9ff06d8e999b9f42a3d57c3",
+  "environment_inventory": {
+    "contracts": 35,
+    "consumers": 28,
+    "new_contract": "ENV-HANDOFF"
+  },
+  "model": {
+    "positive_states": {
+      "handoff_records_FALSE": 216,
+      "handoff_records_TRUE": 344,
+      "handoff_record_set_FALSE": 696,
+      "handoff_record_set_TRUE": 888,
+      "handoff_publish_FALSE": 344,
+      "handoff_publish_TRUE": 504
+    },
+    "algorithm_negatives": [
+      "legacy lost description",
+      "early acknowledgement",
+      "forgetting on error",
+      "wrong API admitted",
+      "skipped internal release"
+    ],
+    "environment_negative": "Successful abstract staging does not establish its owner",
+    "progress": "Stable storage, weak action fairness and original-request retry; starts after file durability. No numerical deadline.",
+    "not_derived": "Quantiles do not establish hard delay bounds; the model is not composed with actual bytes, pending-file, directory, complete graph or process recovery."
+  },
+  "four_host": {
+    "counts": {
+      "baseline": 400,
+      "fixed": 400
+    },
+    "leftovers": {
+      "baseline": {
+        "manual_fixture_data_files": 640,
+        "manual_fixture_data_bytes": 2350605360,
+        "manual_fixture_owners": 400,
+        "manual_fixture_open_reservations": 120
+      },
+      "fixed": {
+        "manual_fixture_data_files": 0,
+        "manual_fixture_data_bytes": 0,
+        "manual_fixture_owners": 0,
+        "manual_fixture_open_reservations": 0
+      }
+    },
+    "normal_gc_data_files": {
+      "baseline": 960,
+      "fixed": 1400
+    },
+    "timings_ms": {
+      "write_records-0-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 98.25227037072182,
+            "p95": 110.0105345249176,
+            "p99": 155.9373065829277,
+            "max": 155.9373065829277
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 110.73624342679977,
+            "p95": 130.60837611556053,
+            "p99": 155.08126839995384,
+            "max": 155.08126839995384
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 109.24625024199486,
+            "p95": 116.96985363960266,
+            "p99": 118.33859235048294,
+            "max": 118.33859235048294
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 99.22628104686737,
+            "p95": 118.6492070555687,
+            "p99": 131.79564476013184,
+            "max": 131.79564476013184
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.02962350845336914,
+            "p95": 0.3193020820617676,
+            "p99": 0.3424324095249176,
+            "max": 0.3424324095249176
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 38.035521283745766,
+            "p95": 42.18403249979019,
+            "p99": 47.145869582891464,
+            "max": 47.145869582891464
+          }
+        }
+      },
+      "write_records-0-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 159.49983894824982,
+            "p95": 176.11176520586014,
+            "p99": 223.96312654018402,
+            "max": 223.96312654018402
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 169.7075292468071,
+            "p95": 203.06330174207687,
+            "p99": 205.96372336149216,
+            "max": 205.96372336149216
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 166.7712703347206,
+            "p95": 234.22268964350224,
+            "p99": 239.80827629566193,
+            "max": 239.80827629566193
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 152.48975902795792,
+            "p95": 176.61895230412483,
+            "p99": 197.56797328591347,
+            "max": 197.56797328591347
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.34049153327941895,
+            "p95": 0.5862787365913391,
+            "p99": 0.593326985836029,
+            "max": 0.593326985836029
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 44.571466743946075,
+            "p95": 51.03013664484024,
+            "p99": 67.24845990538597,
+            "max": 67.24845990538597
+          }
+        }
+      },
+      "write_records-67108864-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 95.05873546004295,
+            "p95": 121.5575784444809,
+            "p99": 179.79389429092407,
+            "max": 179.79389429092407
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 62.02305853366852,
+            "p95": 69.01851296424866,
+            "p99": 82.55061507225037,
+            "max": 82.55061507225037
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 63.33044916391373,
+            "p95": 79.00159247219563,
+            "p99": 80.43714612722397,
+            "max": 80.43714612722397
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 95.99612653255463,
+            "p95": 104.58001494407654,
+            "p99": 114.87988755106926,
+            "max": 114.87988755106926
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.02804398536682129,
+            "p95": 0.03997981548309326,
+            "p99": 0.04030764102935791,
+            "max": 0.04030764102935791
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 11.087354272603989,
+            "p95": 13.472657650709152,
+            "p99": 20.733103156089783,
+            "max": 20.733103156089783
+          }
+        }
+      },
+      "write_records-67108864-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 155.8705009520054,
+            "p95": 215.30967205762863,
+            "p99": 216.88759326934814,
+            "max": 216.88759326934814
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 118.40920150279999,
+            "p95": 125.23116543889046,
+            "p99": 132.1289725601673,
+            "max": 132.1289725601673
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 117.46201664209366,
+            "p95": 133.6633935570717,
+            "p99": 142.0632153749466,
+            "max": 142.0632153749466
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 154.66070361435413,
+            "p95": 180.35727366805077,
+            "p99": 183.28706920146942,
+            "max": 183.28706920146942
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.36573968827724457,
+            "p95": 1.023218035697937,
+            "p99": 1.6046017408370972,
+            "max": 1.6046017408370972
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 18.645048141479492,
+            "p95": 21.63262665271759,
+            "p99": 26.7290361225605,
+            "max": 26.7290361225605
+          }
+        }
+      },
+      "publish-0-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 135.56770980358124,
+            "p95": 170.80306261777878,
+            "p99": 176.01961269974709,
+            "max": 176.01961269974709
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 176.27752013504505,
+            "p95": 197.4722146987915,
+            "p99": 202.35824212431908,
+            "max": 202.35824212431908
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 164.54143822193146,
+            "p95": 207.5163796544075,
+            "p99": 244.37890946865082,
+            "max": 244.37890946865082
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 141.55574515461922,
+            "p95": 175.92480778694153,
+            "p99": 213.66141736507416,
+            "max": 213.66141736507416
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.06922706961631775,
+            "p95": 0.13019144535064697,
+            "p99": 0.2608001232147217,
+            "max": 0.2608001232147217
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 84.053510800004,
+            "p95": 97.51006215810776,
+            "p99": 115.19180610775948,
+            "max": 115.19180610775948
+          }
+        }
+      },
+      "publish-0-2048-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 192.03868508338928,
+            "p95": 260.3674605488777,
+            "p99": 276.09267458319664,
+            "max": 276.09267458319664
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 168.40891912579536,
+            "p95": 229.22705113887787,
+            "p99": 257.8703351318836,
+            "max": 257.8703351318836
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 169.5900782942772,
+            "p95": 245.99605053663254,
+            "p99": 265.19810035824776,
+            "max": 265.19810035824776
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 191.91352277994156,
+            "p95": 255.08295372128487,
+            "p99": 273.0211168527603,
+            "max": 273.0211168527603
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.06933137774467468,
+            "p95": 0.0889897346496582,
+            "p99": 0.09246915578842163,
+            "max": 0.09246915578842163
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 77.0200714468956,
+            "p95": 87.14376576244831,
+            "p99": 87.42208778858185,
+            "max": 87.42208778858185
+          }
+        }
+      },
+      "publish-0-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 190.64318388700485,
+            "p95": 256.3124094158411,
+            "p99": 264.82659205794334,
+            "max": 264.82659205794334
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 229.20545935630798,
+            "p95": 377.0328350365162,
+            "p99": 390.0820016860962,
+            "max": 390.0820016860962
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 207.6443564146757,
+            "p95": 271.42849564552307,
+            "p99": 300.40064454078674,
+            "max": 300.40064454078674
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 184.7713217139244,
+            "p95": 195.2659785747528,
+            "p99": 200.7531151175499,
+            "max": 200.7531151175499
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.3915894776582718,
+            "p95": 0.8389651775360107,
+            "p99": 1.096382737159729,
+            "max": 1.096382737159729
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 85.56411415338516,
+            "p95": 115.18224328756332,
+            "p99": 118.16718801856041,
+            "max": 118.16718801856041
+          }
+        }
+      },
+      "publish-0-8388608-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 235.04265397787094,
+            "p95": 313.2852166891098,
+            "p99": 417.7348166704178,
+            "max": 417.7348166704178
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 220.61357647180557,
+            "p95": 279.9537554383278,
+            "p99": 364.35217410326004,
+            "max": 364.35217410326004
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 230.43712973594666,
+            "p95": 290.73698073625565,
+            "p99": 304.95593696832657,
+            "max": 304.95593696832657
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 247.11360037326813,
+            "p95": 303.090937435627,
+            "p99": 309.47884917259216,
+            "max": 309.47884917259216
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.39795786142349243,
+            "p95": 0.8827447891235352,
+            "p99": 7.656335830688477,
+            "max": 7.656335830688477
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 82.46807008981705,
+            "p95": 95.39453685283661,
+            "p99": 139.10501450300217,
+            "max": 139.10501450300217
+          }
+        }
+      },
+      "publish-67108864-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 121.1782842874527,
+            "p95": 136.62884011864662,
+            "p99": 146.2506726384163,
+            "max": 146.2506726384163
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 113.54072391986847,
+            "p95": 128.0234269797802,
+            "p99": 129.77829203009605,
+            "max": 129.77829203009605
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 101.42012685537338,
+            "p95": 120.56628614664078,
+            "p99": 123.74522350728512,
+            "max": 123.74522350728512
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 120.07209844887257,
+            "p95": 153.30017916858196,
+            "p99": 164.94005173444748,
+            "max": 164.94005173444748
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.06190687417984009,
+            "p95": 0.07884204387664795,
+            "p99": 0.08155405521392822,
+            "max": 0.08155405521392822
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 49.361735582351685,
+            "p95": 57.60044604539871,
+            "p99": 61.68587692081928,
+            "max": 61.68587692081928
+          }
+        }
+      },
+      "publish-67108864-2048-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 146.49943262338638,
+            "p95": 161.58753633499146,
+            "p99": 172.5422777235508,
+            "max": 172.5422777235508
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 115.86685478687286,
+            "p95": 123.46668913960457,
+            "p99": 222.19397500157356,
+            "max": 222.19397500157356
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 117.62549355626106,
+            "p95": 129.14680689573288,
+            "p99": 132.67595693469048,
+            "max": 132.67595693469048
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 146.14143781363964,
+            "p95": 166.15548729896545,
+            "p99": 171.33398354053497,
+            "max": 171.33398354053497
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.06435997784137726,
+            "p95": 0.09147822856903076,
+            "p99": 0.10497868061065674,
+            "max": 0.10497868061065674
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 63.081495463848114,
+            "p95": 80.39994537830353,
+            "p99": 91.36638790369034,
+            "max": 91.36638790369034
+          }
+        }
+      },
+      "publish-67108864-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 176.65638774633408,
+            "p95": 261.4100053906441,
+            "p99": 278.94116193056107,
+            "max": 278.94116193056107
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 170.99216394126415,
+            "p95": 177.5529570877552,
+            "p99": 190.42302668094635,
+            "max": 190.42302668094635
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 156.809464097023,
+            "p95": 180.52880465984344,
+            "p99": 190.6839907169342,
+            "max": 190.6839907169342
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 179.61200699210167,
+            "p95": 209.13109928369522,
+            "p99": 239.42692577838898,
+            "max": 239.42692577838898
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.3913268446922302,
+            "p95": 0.6520524621009827,
+            "p99": 3.590099513530731,
+            "max": 3.590099513530731
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 57.15285614132881,
+            "p95": 78.51880043745041,
+            "p99": 138.98739218711853,
+            "max": 138.98739218711853
+          }
+        }
+      },
+      "publish-67108864-8388608-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 204.844132065773,
+            "p95": 233.8770404458046,
+            "p99": 279.24974262714386,
+            "max": 279.24974262714386
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 169.69473659992218,
+            "p95": 195.62367349863052,
+            "p99": 199.31095093488693,
+            "max": 199.31095093488693
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 170.21532356739044,
+            "p95": 189.89897519350052,
+            "p99": 208.53503048419952,
+            "max": 208.53503048419952
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 201.12502574920654,
+            "p95": 213.4806588292122,
+            "p99": 219.9242264032364,
+            "max": 219.9242264032364
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.3963783383369446,
+            "p95": 1.7131343483924866,
+            "p99": 3.063589334487915,
+            "max": 3.063589334487915
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 71.66486233472824,
+            "p95": 80.38771152496338,
+            "p99": 81.8585604429245,
+            "max": 81.8585604429245
+          }
+        }
+      },
+      "record_set-0-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 121.13121151924133,
+            "p95": 156.9627895951271,
+            "p99": 167.68679022789001,
+            "max": 167.68679022789001
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 204.93315905332565,
+            "p95": 235.79784482717514,
+            "p99": 240.93252420425415,
+            "max": 240.93252420425415
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 193.45111399888992,
+            "p95": 261.61227375268936,
+            "p99": 282.4132367968559,
+            "max": 282.4132367968559
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 128.8433875888586,
+            "p95": 139.99740034341812,
+            "p99": 141.85667410492897,
+            "max": 141.85667410492897
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.043880194425582886,
+            "p95": 0.06999820470809937,
+            "p99": 0.07908046245574951,
+            "max": 0.07908046245574951
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 122.3687082529068,
+            "p95": 131.04435801506042,
+            "p99": 145.50523459911346,
+            "max": 145.50523459911346
+          }
+        }
+      },
+      "record_set-0-2048-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 224.54190999269485,
+            "p95": 268.5629352927208,
+            "p99": 368.0849298834801,
+            "max": 368.0849298834801
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 213.46666663885117,
+            "p95": 244.1612407565117,
+            "p99": 245.69936096668243,
+            "max": 245.69936096668243
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 209.40806716680527,
+            "p95": 242.14955419301987,
+            "p99": 244.10005658864975,
+            "max": 244.10005658864975
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 233.14423114061356,
+            "p95": 369.58999186754227,
+            "p99": 370.6301096826792,
+            "max": 370.6301096826792
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.045046210289001465,
+            "p95": 0.05912967026233673,
+            "p99": 0.06301701068878174,
+            "max": 0.06301701068878174
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 119.76372078061104,
+            "p95": 145.84935456514359,
+            "p99": 156.52542747557163,
+            "max": 156.52542747557163
+          }
+        }
+      },
+      "record_set-0-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 129.2552351951599,
+            "p95": 150.72555094957352,
+            "p99": 175.21198093891144,
+            "max": 175.21198093891144
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 207.24676549434662,
+            "p95": 231.29077814519405,
+            "p99": 241.03998020291328,
+            "max": 241.03998020291328
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 200.19060000777245,
+            "p95": 227.4937927722931,
+            "p99": 253.49097698926926,
+            "max": 253.49097698926926
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 124.81177598237991,
+            "p95": 157.61498361825943,
+            "p99": 221.56056202948093,
+            "max": 221.56056202948093
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.04132091999053955,
+            "p95": 0.07261335849761963,
+            "p99": 0.3840252757072449,
+            "max": 0.3840252757072449
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 122.53482639789581,
+            "p95": 151.71102434396744,
+            "p99": 180.58030307292938,
+            "max": 180.58030307292938
+          }
+        }
+      },
+      "record_set-0-8388608-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 218.89856457710266,
+            "p95": 241.52850359678268,
+            "p99": 247.8438839316368,
+            "max": 247.8438839316368
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 201.99299044907093,
+            "p95": 214.9638831615448,
+            "p99": 255.13335317373276,
+            "max": 255.13335317373276
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 204.33980226516724,
+            "p95": 254.22992184758186,
+            "p99": 299.5220646262169,
+            "max": 299.5220646262169
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 221.6767817735672,
+            "p95": 240.40703661739826,
+            "p99": 240.94712734222412,
+            "max": 240.94712734222412
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.04398077726364136,
+            "p95": 0.05272775888442993,
+            "p99": 0.062309205532073975,
+            "max": 0.062309205532073975
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 119.69822645187378,
+            "p95": 139.87669348716736,
+            "p99": 196.7085860669613,
+            "max": 196.7085860669613
+          }
+        }
+      },
+      "record_set-67108864-2048-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 119.62360143661499,
+            "p95": 134.376535192132,
+            "p99": 135.48687100410461,
+            "max": 135.48687100410461
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 160.55714897811413,
+            "p95": 206.27590268850327,
+            "p99": 230.33428192138672,
+            "max": 230.33428192138672
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 144.76744085550308,
+            "p95": 171.2908037006855,
+            "p99": 171.6097816824913,
+            "max": 171.6097816824913
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 121.0915669798851,
+            "p95": 139.2175294458866,
+            "p99": 140.7029628753662,
+            "max": 140.7029628753662
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.041581690311431885,
+            "p95": 0.06651133298873901,
+            "p99": 0.06855279207229614,
+            "max": 0.06855279207229614
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 91.94763004779816,
+            "p95": 109.54019613564014,
+            "p99": 114.69844542443752,
+            "max": 114.69844542443752
+          }
+        }
+      },
+      "record_set-67108864-2048-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 191.88188016414642,
+            "p95": 206.64311200380325,
+            "p99": 208.65745097398758,
+            "max": 208.65745097398758
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 155.33172711730003,
+            "p95": 175.04549026489258,
+            "p99": 230.26128113269806,
+            "max": 230.26128113269806
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 158.3971343934536,
+            "p95": 188.47369402647018,
+            "p99": 203.4834697842598,
+            "max": 203.4834697842598
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 191.40620157122612,
+            "p95": 211.83418855071068,
+            "p99": 215.31275659799576,
+            "max": 215.31275659799576
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.04535168409347534,
+            "p95": 0.178508460521698,
+            "p99": 0.18214434385299683,
+            "max": 0.18214434385299683
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 108.6246706545353,
+            "p95": 123.31507913768291,
+            "p99": 126.72550231218338,
+            "max": 126.72550231218338
+          }
+        }
+      },
+      "record_set-67108864-8388608-stage": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 118.60303580760956,
+            "p95": 127.885352820158,
+            "p99": 131.18170946836472,
+            "max": 131.18170946836472
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 156.55069053173065,
+            "p95": 168.31286251544952,
+            "p99": 172.89745435118675,
+            "max": 172.89745435118675
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 141.4189673960209,
+            "p95": 151.1675901710987,
+            "p99": 159.18122977018356,
+            "max": 159.18122977018356
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 115.76224118471146,
+            "p95": 127.96074897050858,
+            "p99": 131.55867159366608,
+            "max": 131.55867159366608
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.04359334707260132,
+            "p95": 0.07600337266921997,
+            "p99": 0.0783577561378479,
+            "max": 0.0783577561378479
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 90.07887542247772,
+            "p95": 111.56388372182846,
+            "p99": 157.35570341348648,
+            "max": 157.35570341348648
+          }
+        }
+      },
+      "record_set-67108864-8388608-release": {
+        "baseline": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 185.6510415673256,
+            "p95": 210.18563210964203,
+            "p99": 217.17046946287155,
+            "max": 217.17046946287155
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 159.0452939271927,
+            "p95": 174.2565557360649,
+            "p99": 188.42580541968346,
+            "max": 188.42580541968346
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 153.4646674990654,
+            "p95": 168.3637499809265,
+            "p99": 174.13470894098282,
+            "max": 174.13470894098282
+          }
+        },
+        "fixed": {
+          "first_failure_ms": {
+            "n": 20,
+            "p50": 192.87841022014618,
+            "p95": 226.44276544451714,
+            "p99": 253.15505266189575,
+            "max": 253.15505266189575
+          },
+          "other_request_ms": {
+            "n": 20,
+            "p50": 0.04227831959724426,
+            "p95": 0.06037205457687378,
+            "p99": 0.11648237705230713,
+            "max": 0.11648237705230713
+          },
+          "retry_ms": {
+            "n": 20,
+            "p50": 103.78610901534557,
+            "p95": 117.14288964867592,
+            "p99": 117.49757081270218,
+            "max": 117.49757081270218
+          }
+        }
+      }
+    },
+    "scope": "Four independent clients with alternating wheel order. Five samples per host/group, pooled n=20, nearest-rank p99=max. Stage/late release responses are lost after real successful catalog sync via callbacks, not syscall EIO. Same-host peer GC, no power loss/cache eviction. record_set writes a small manifest referencing the given payload size. Baseline admits another publication and rewrites the original; fixed rejects it and reuses the file. Latencies therefore include unequal work. Concurrent 100 GB run may overlap. No delay bound or backend bandwidth claim.",
+    "data_cleaned": true,
+    "remote_cleanup": {
+      "client-1": true,
+      "client-2": true,
+      "client-3": true,
+      "client-4": true
+    },
+    "harness_correction": "Initial aggregate assertion expected one retained file per failed request. Retained result roots also protect dependencies: old write_records/stage and record_set/stage retain one file, publish/stage, publish/release and record_set/release retain two. All 800 cases completed and passed before this reporting assertion. No measurements rerun."
+  },
+  "large_record": {
+    "binary_sha256": "404b3b27ae9e5c3d09b59d441d45293f45d176032d5a5d0659975bd755576ef1",
+    "source_sha256": {
+      "Cargo.toml": "0bcf66f313c7a341c4b4e40778e3edfba2791335cc17f38f69e4ae1cb36e3e77",
+      "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+      "verification/handoff_extent_probe.rs": "7274fc03e20070cc95af9faa7f15771fda4f6ca0a15e96f30ca192f7294cf661",
+      "rust/bounds.rs": "15abce726004eaed9838a09754c5bb55bafd58538b3894c013ad2d32f2a50002",
+      "rust/coordinator.rs": "7534c99b7a0f32ef0d0db787c5971230c5f937856d53b8e47ec8fea31322058c",
+      "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+      "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+      "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+      "rust/gc.rs": "ba44835b344fc3f523a103d717cf40cc0d241e3ad1f67cd188ab0acb3ecec501",
+      "rust/holding.rs": "7ec0273503c34824f9df5ad170ab90ad9c91b3e70df9fc8320867b9224e497d1",
+      "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+      "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+      "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+      "rust/lib.rs": "21327717671ae2244332413f7985b5d256207d87e56ada04540ebafd4003754c",
+      "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+      "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+      "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+      "rust/python.rs": "22146f306bf18a1a12b67fbbfcff2b643c707f474bef19eab9cf604d9dcc8d61",
+      "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+      "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "rust/store.rs": "eded55523f03fb66420a6807e865e5ab5ed6efe32472200a70a97a6d66d49129",
+      "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+      "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73"
+    },
+    "hostname": "node-1",
+    "measured": {
+      "authentication_mib_s": 903.772474379176,
+      "authentication_seconds": 105.521504963,
+      "before_retry_gc": {
+        "open_packs": 1,
+        "owners": 1,
+        "reclaimed_bytes": 0,
+        "reclaimed_files": 0,
+        "retained_packs": 1,
+        "tombstones": 0
+      },
+      "file_bytes": 100000000582,
+      "gc": {
+        "open_packs": 0,
+        "owners": 0,
+        "reclaimed_bytes": 100000000582,
+        "reclaimed_files": 1,
+        "retained_packs": 0,
+        "tombstones": 1
+      },
+      "gc_seconds": 5.5523584679999995,
+      "initial_failed_publication_seconds": 281.319538645,
+      "initial_write_mib_s": 339.0003840471604,
+      "passed": true,
+      "pattern_bytes": 8388608,
+      "payload_bytes": 100000000000,
+      "payload_visits": 3,
+      "reference": {
+        "ordinal": 0,
+        "segment": {
+          "checksum": "3d945b4eef7af0f003818b6c0b17dfeb9c0bab963a90e6cfdfa0dbafadf2d7af",
+          "checksum_algorithm": "sha256",
+          "offset": 0,
+          "path": "raw/4f/4fd65d3c13384b64a9ba0b8429f4994c/d54fe923777e4a96a74c7d00907c4449.sealed",
+          "run_id": "handoff-probe",
+          "segment_id": "d54fe923777e4a96a74c7d00907c4449",
+          "size": 100000000582,
+          "version": 1
+        }
+      },
+      "rejected_other_seconds": 1.016e-06,
+      "release_seconds": 0.041491406,
+      "retry_payload_write_callbacks": 0,
+      "retry_seconds": 69.252750303,
+      "root": "private-artifact-0058",
+      "rss_kib": 19160,
+      "scope": "One repeated random-pattern record and staging error, same-host authentication, no cache eviction. Initial timing ends in error; workflow includes diagnostics and rejection. Retry rehashes input once but emits no payload writes. No p99, physical-device bandwidth or backend-GC completion claim.",
+      "total_success_seconds": 350.585282679,
+      "workflow_mib_s": 272.0234885842157
+    },
+    "data_cleaned": true
+  },
+  "validation": {
+    "python": 551,
+    "native": 34,
+    "focused": 106,
+    "new_tests": 43,
+    "new_tests_on_baseline": {
+      "failed": 42,
+      "passed": 1
+    },
+    "tla_cases": 189,
+    "tla_case_kinds": {
+      "positive": 78,
+      "algorithm_negative": 98,
+      "environment_negative": 13
+    },
+    "tla_temporal_negatives": 3,
+    "verus_positive_verified": 108,
+    "verus_semantic_negatives": 80,
+    "verus_case_kinds": {
+      "positive": 1,
+      "algorithm_negative": 76,
+      "environment_negative": 4
+    },
+    "clippy_default_and_python": true,
+    "format_and_diff_checks": true,
+    "binary_only_wheel_check": {
+      "wheel": "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "abd9d101a4974791e99fe35b8b9c3a3a5391df3980764242c2679a8079743694",
+      "version": "0.1.3",
+      "native_extension": "straw/_native.cpython-312-x86_64-linux-gnu.so",
+      "passed": true,
+      "runtime_dependencies": "existing NumPy/PyTorch reused; no Rust or maturin on test PATH",
+      "checks": [
+        "no local source paths in generated metadata",
+        "binary-only install",
+        "installed-package import",
+        "records",
+        "tensors/COW",
+        "queue/GC",
+        "multiprocess crash/recovery",
+        "README Python examples",
+        "local benchmark/GC",
+        "trace profile"
+      ],
+      "benchmark_payload_bytes": 8257536,
+      "benchmark_publications": 42,
+      "benchmark_data_files": 6,
+      "benchmark_root_removed": true,
+      "core_and_protocol_checks": true
+    },
+    "earlier_attempts": [
+      "Initial Verus production attempt: 106 verified, 1 unproved enum equality postcondition. Replaced derived executable equality with the actual exhaustive same_api function; final proof has no errors.",
+      "Initial focused fixed run: 103 passed, 3 fixture failures from legal partial-to-sealed renaming. Corrected assertion; final focused run 106 passed.",
+      "Initial aggregate assertion expected one retained file per failed request. Retained result roots also protect dependencies: old write_records/stage and record_set/stage retain one file, publish/stage, publish/release and record_set/release retain two. All 800 cases completed and passed before this reporting assertion. No measurements rerun."
+    ]
+  },
+  "unproved": [
+    "Actual request/string matching, content hashing, guard placement and full Store/catalog dispatch",
+    "Mechanical composition of handoff, pending-file, directory, complete dependency graph, ownership and process recovery models",
+    "Explicit abandonment/close, early dependency holds and crashed-writer recovery",
+    "JuiceFS internals, lock/session expiry, network partitions, power loss, delay and bandwidth SLA"
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

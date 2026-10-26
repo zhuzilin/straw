@@ -28,6 +28,7 @@ def main():
     args = parser.parse_args()
     wheel = args.wheel.resolve()
     source = Path(__file__).resolve().parents[1]
+    subprocess.run([os.sys.executable, str(source / "tools/check_artifact_privacy.py"), str(wheel)], check=True)
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         forbidden = {"__pycache__", "reports", "target", ".git"}
@@ -48,8 +49,8 @@ def main():
         env = {k: v for k, v in os.environ.items() if k not in {"PYTHONPATH", "PYTHONHOME", "STRAW_TRACE_DIR"}}
         env["PATH"] = str(environment / "bin")
 
-        def run(*command):
-            subprocess.run([str(python), "-I", *map(str, command)], env=env, cwd=root, check=True, timeout=180)
+        def run(*command, timeout=180):
+            subprocess.run([str(python), "-I", *map(str, command)], env=env, cwd=root, check=True, timeout=timeout)
 
         run("-m", "pip", "install", "--no-index", "--no-deps", "--only-binary=:all:", "--force-reinstall", wheel)
         run(
@@ -65,9 +66,15 @@ def main():
         for snippet in re.findall(r"```python\n(.*?)```", (source / "README.md").read_text(), re.S):
             run("-c", snippet)
         if args.tests:
-            run("-m", "pytest", "-q", source / "tests", "--basetemp", root / "pytest")
-            run(source / "verification/ownership_model.py", "--output", root / "model.json")
-            run(source / "verification/crash_campaign.py", "--parent", root, "--output", root / "crashes.json")
+            run("-m", "pytest", "-q", source / "tests", "--basetemp", root / "pytest", timeout=900)
+            run(source / "verification/protocol/checks/ownership_model.py", "--output", root / "model.json")
+            run(
+                source / "verification/wal/checks/crash_campaign.py",
+                "--parent",
+                root,
+                "--output",
+                root / "crashes.json",
+            )
             assert json.loads((root / "model.json").read_text())["protocol"]["passed"]
             assert json.loads((root / "crashes.json").read_text())["passed"]
 
@@ -111,6 +118,7 @@ def main():
             "passed": True,
             "runtime_dependencies": "existing NumPy/PyTorch reused; no Rust or maturin on test PATH",
             "checks": [
+                "artifact privacy scan, including native binary paths",
                 "no local source paths in generated metadata",
                 "binary-only install",
                 "installed-package import",

@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-23",
+  "scope": "Unbounded retry liveness for one durably tombstoned pack, independently reviewable I/O/progress contracts, four-client historical-tombstone cost",
+  "environment_registry_sha256": "5a987bded4073842331494dbd8bfaf2338596d08dd88bf76dfc29b6682dec413",
+  "verus": {
+    "passed": true,
+    "verified": 45,
+    "errors": 0,
+    "negative_controls": 18,
+    "environment_negative_controls": 3,
+    "negative_function_filters": {
+      "gc_retry_does_not_restart": "stable_step",
+      "environment_gc_sync_lies": "history_valid",
+      "environment_gc_no_retry_fairness": "fair_retry_event",
+      "environment_gc_errors_forever": "stable_response_at"
+    },
+    "report_sha256": "3091381a7927185865d41ff4624cbc5338925af34de04bae5a63fa07deaeaf37",
+    "source_sha256": {
+      "rust/bounds.rs": "830ca41f5d2ff90f118b9346565bad2b1e5086ca32debfec58a2fc1b62008543",
+      "rust/protocol.rs": "d8a1468a23a21f0e0db6c4e71ec6c20e3b2c090eb95107165390fbfed803781e",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "verification/control_plane.rs": "404051261634b92ca4016aca98adfe982da269836027b048d79406d4d748b46b",
+      "verification/environment.rs": "d7e2a72882e691e6d27c2f9124d8d7a703eab2a162975f492af473f362d4d834",
+      "verification/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+      "verification/verus.rs": "cc23bcf48becac71c13202f0d6313b5d4785eb1efbf55f4e0781e8e48c1d7d0f"
+    }
+  },
+  "tlc": {
+    "passed": true,
+    "cases": 40,
+    "environment_negative_controls": 4,
+    "report_sha256": "799645f2232d07828cff324b43a5a6adc2f2d73ecb93cdb154ffdb99203dea1a"
+  },
+  "runtime_evidence": {
+    "code_unchanged_from": "20261023-selection.json",
+    "last_full_wheel_python_tests": 314,
+    "last_full_wheel_native_tests": 5,
+    "wheel_sha256": "9d694c34bb7dc995c837b6ea4d6c10dd0aac5b00fa2f209a96062a156ab6fa52",
+    "native_sha256": "d6d5d4f58ab115954d4662c9a905f0a718fd3265c65d097cabda20ea96ef9ca1",
+    "note": "No new runtime Rust changes or re-run of the full wheel gate; current four-host probe validates this binary."
+  },
+  "gc_history": {
+    "report_path": "private-artifact-0107",
+    "report_sha256": "19f180ae60d092579703e68e16806e90d7cecf77936853d9ce5a8b728c04b986",
+    "client_count": 4,
+    "samples_per_level_per_host": 250,
+    "record_bytes_per_pack": 1024,
+    "total_packs_created_and_deleted": 512,
+    "pooled_ms": {
+      "0": {
+        "n": 1000,
+        "p50": 10.770422,
+        "p95": 16.614401,
+        "p99": 29.849756,
+        "max": 43.477787
+      },
+      "32": {
+        "n": 1000,
+        "p50": 23.4627,
+        "p95": 34.681153,
+        "p99": 47.520502,
+        "max": 124.063134
+      },
+      "128": {
+        "n": 1000,
+        "p50": 64.574227,
+        "p95": 87.250638,
+        "p99": 103.477163,
+        "max": 119.078727
+      }
+    },
+    "source_sha256": "c9cba53bab663d27acb4df3e90d4bd355dcde61bef9c6a651c6478250772047a",
+    "data_cleaned": true
+  },
+  "limitations": [
+    "Liveness starts with a permanent durable tombstone; ownership/locking/replay composition and real I/O adapter refinement remain unproved.",
+    "Eventual storage recovery and fair I/O alone do not imply caller retries; there is no automatic retry daemon.",
+    "Successful modeled unlink (including truthful NotFound) must mean actual current absence; stale negative-cache behavior is not proved.",
+    "Generic controller progresses remains a direct premise; the new GC theorem does not use it.",
+    "GC measurements are repeated warm calls at 0/32/128 tombstones, include catalog lock/refresh, stat and directory sync, and do not isolate syscall costs.",
+    "Levels run in ascending order with uncontrolled cache/backend load; p99 is observational, not a deadline or proof premise.",
+    "No runtime GC optimization, new 100 GB bandwidth measurement or TB-scale physical test in this round."
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

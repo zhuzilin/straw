@@ -15,19 +15,21 @@ cargo fmt --check
 cargo clippy --all-targets --features python -- -D warnings
 cargo test --locked
 python -m pytest
-python verification/ownership_model.py --output /tmp/straw-ownership.json
-python verification/crash_campaign.py --output /tmp/straw-crashes.json
+python verification/runners/check_tla.py  # Java 17+
+python verification/protocol/checks/ownership_model.py --output /tmp/straw-ownership.json
+python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
 
 | Check | Evidence |
 |---|---|
+| [TLA+ / Verus](FORMAL_VERIFICATION.md) | Bounded protocol exploration; production arithmetic, commit/GC controller and candidate-loop conformance; unbounded catalog-model safety and conditional progress; semantic mutants |
 | Rust tests | Native packing, interrupted tails, atomic acceptance and fencing |
 | Python regression suite | Native core through public bindings: corrupt/truncated data, bounded capacity, retry/receipt semantics, leases, continuations, tensors, ownership and GC |
 | Independent ownership model | Exhaustive bounded interleavings of two queues, a reader, checkpoint and crash; five deliberately unsafe protocols, including checkpoint rewind must produce counterexamples |
 | Native crash campaign | Every byte prefix and one XOR mutation at every byte in new WAL frames; abrupt process exits at ownership/WAL handoff boundaries |
 | Examples and wheel smoke | Installation and public usage, without source imports or a Rust runtime toolchain |
 
-The finite model explores an abstraction, not the Rust implementation, arbitrary
+The independent Python ownership model explores an abstraction, not the Rust implementation, arbitrary
 dependency graphs or unbounded histories. It is not TLA+/TLAPS refinement or a
 liveness proof. The crash campaign exercises prefix persistence and process
 death; the kernel remains alive. Its private temporary directory is removed
@@ -39,7 +41,7 @@ On a shared checkout and mount, with the same package/interpreter available
 on four hosts and SSH configured:
 
 ```sh
-python verification/crash_campaign.py \
+python verification/wal/checks/crash_campaign.py \
   --hosts HOST_A HOST_B HOST_C HOST_D --parent /shared/test-tmp \
   --output /tmp/straw-four-client-crashes.json
 ```
@@ -56,11 +58,11 @@ record, not just throughput or the launcher's success message.
 
 ## Focused GC probes
 
-`verification/gc_scale.py` measures ownership cost with tiny records. Start one
+`verification/gc/probes/gc_scale.py` measures ownership cost with tiny records. Start one
 copy on each client, with a distinct queue name and the same fresh root:
 
 ```sh
-python verification/gc_scale.py --root /shared/new-gc-scale \
+python verification/gc/probes/gc_scale.py --root /shared/new-gc-scale \
   --queue HOST_A --count 1024 --participants 4
 ```
 
@@ -72,17 +74,17 @@ replay and does not measure tensor bandwidth or cold storage. The caller owns
 cleanup **after all four processes stop**. To continue an interrupted fixture,
 confirm its old workers stopped before using `--resume` on the same queues.
 
-`verification/gc_cross_client.py` isolates cached positive attributes after a
+`verification/gc/probes/gc_cross_client.py` isolates cached positive attributes after a
 remote deletion. Prepare a unique root on one client:
 
 ```sh
-python verification/gc_cross_client.py --root /shared/new-gc-cache
+python verification/gc/probes/gc_cross_client.py --root /shared/new-gc-cache
 ```
 
 Start the following on each of the four clients with distinct `--worker` names:
 
 ```sh
-python verification/gc_cross_client.py --root /shared/new-gc-cache --worker HOST_A
+python verification/gc/probes/gc_cross_client.py --root /shared/new-gc-cache --worker HOST_A
 ```
 
 Each client primes its stat cache and writes one `ready-<worker>` marker. After
@@ -104,3 +106,6 @@ Before broader production claims, qualify actual client/mount cache settings,
 distributed locks and sync semantics, storage-service interruption, device/VM
 power loss, ENOSPC/EIO and long-duration retention/recovery. Application model
 training and joint optimizer checkpoints need their own end-to-end tests.
+
+[TLA+ / Verus specifications and instructions](FORMAL_VERIFICATION.md) describe model assumptions,
+code correspondence and required negative controls.

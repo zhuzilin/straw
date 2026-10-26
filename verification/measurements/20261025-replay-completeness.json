@@ -1,0 +1,328 @@
+{
+  "checkpoint": "20261025-replay-completeness",
+  "scope": "Actual read_frame/recover bodies constrain every malformed result and distinguish I/O/application errors. Valid complete frames decode exactly; permitted incomplete tails remain distinct. Prefix uniqueness and valid finite-log theorems establish no spurious format rejection and exact ordered payload reconstruction on successful recovery within u64/usize bounds.",
+  "proof_gap": "Changing the old actual recover body to always reject the cursor still verifies all 225 previous positive obligations. The strengthened contracts reject the same mutation. This is an old-specification gap, not a runtime always-reject bug.",
+  "remaining": "Native Device/Writer descriptor, snapshot and primitive-result correspondence; raw JSON/path-to-operation binding; business Target and full Journal/catalog/coordinator/GC transaction refinement and conditional progress remain open.",
+  "verus_positive_checks": 238,
+  "targeted_verus_negative_cases": 29,
+  "native_tests": 60,
+  "check_scope": "The complete positive source is verified. Each negative checks the affected production body or immediate consumer of its changed adapter contract, with the function scope recorded. A semantic failure is required; timeouts, resource exhaustion and parser/tool failures never count. Native tests, formatting, and default/Python clippy pass. No fresh Python wheel, complete older-negative or TLC campaign is claimed for this proof/type-annotation change.",
+  "verus_inputs": {
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+    "rust/catalog_log.rs": "908ccb5ca5b34fe7cb67340495860904b04b8f3af53341f6c0b1b2d2be80e6c4",
+    "rust/catalog_state.rs": "e4bda9a424dd395e048154a7a86fa7fed46ed3151f8453874fbb2dfe72e94af0",
+    "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+    "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+    "rust/wal_recovery.rs": "88e18ba0e4b0e1b1a43dc9bc5caefcaa73e2c99bd780b5a98a8fbc82765420d3",
+    "rust/wal_append.rs": "5e688f69bd99c10c56f575c5baed222566dd557c6be2b0e1508dc1b7c9598b16",
+    "rust/wal_device.rs": "4b31f394b40be95febde3f066763f532a1d8f3ec1e11132e9f2edf4c586eeddd",
+    "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+    "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+    "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+    "rust/protocol.rs": "a0a97589977fca8a01b0bcab4f720e3b69e0102493a0c111f33a98839641ab47",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+    "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "verification/protocol/verus/control_plane.rs": "5f643bc9f77c0aae9287afea146725cbe9b4a17f21eefcfc2be197e50941eeb4",
+    "verification/protocol/verus/retry_liveness.rs": "6a6dd44fdd9dea77ecbb7a1dcd97203f93de38545be3c323d0802e7c766c21b4",
+    "verification/common/verus/environment.rs": "21f857e01d197a22d00e8e2c63786196f92bb6e81a3c0594da82b92d1b478264",
+    "verification/gc/verus/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+    "verification/common/verus/verus.rs": "3d42a771c6d9112e6a4c5ed95187d0c86691c7f4b15599b226019857fb4fdd41",
+    "verification/common/verus/serde_json.rs": "7ee192eab1cd024290a885d53188c5e32e97a975d61beb2f4446f4ea81ba3aff"
+  },
+  "proof_environment_registry_sha256": "2c4563bee2a3c43cc6a5e87997622dce562cc1e7cdf1c4d5f485b77f9be69bc9",
+  "verus_results": [
+    {
+      "name": "production",
+      "case_kind": "positive",
+      "verified": 238,
+      "errors": 0,
+      "passed": true,
+      "verification_module": null,
+      "verification_filter": null
+    },
+    {
+      "name": "replay_rejects_legal_partial",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_rejects_valid_header",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_rejects_empty_frame",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_rejects_valid_trailer",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "recovery_rejects_valid_cursor",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "recovery_rejects_usable_sequence",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "recovery_rejects_confirmed_boundary",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "replay_mislabels_trailer_error",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "recovery_mislabels_frame_io_error",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "replay_driver_ignores_sync_error",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_ignores_seek_error",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "environment_replay_hash_unbound",
+      "case_kind": "environment_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "environment_replay_apply_drops_record",
+      "case_kind": "environment_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "environment_replay_wrong_read_bytes",
+      "case_kind": "environment_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "environment_replay_wrong_seek_identity",
+      "case_kind": "environment_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "environment_replay_seek_lies",
+      "case_kind": "environment_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "environment_replay_sync_lies",
+      "case_kind": "environment_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_skips_sync",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_skips_seek",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_skips_truncate",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_keeps_buffer",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "finish"
+    },
+    {
+      "name": "replay_driver_skips_floor",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "replay_driver_skips_apply",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "replay_driver_wrong_sequence",
+      "case_kind": "algorithm_negative",
+      "verified": 1,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "recover"
+    },
+    {
+      "name": "replay_driver_wrong_header_hash_span",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_driver_omits_header_from_frame_hash",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_driver_truncates_corrupt_frame",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_driver_accepts_bad_partial_magic",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    },
+    {
+      "name": "replay_driver_skips_trailer_validation",
+      "case_kind": "algorithm_negative",
+      "verified": 0,
+      "errors": 1,
+      "passed": true,
+      "verification_module": "wal_recovery",
+      "verification_filter": "read_frame"
+    }
+  ],
+  "artifacts": {
+    "old-specification-counterexample.tar.gz": "01a0b73cfc3a5803f0a4dfe122342863c854faa6c9faead0dbf8f106899d9f05",
+    "source.tar.gz": "2d02f558f73c09b1bddff00df7cc072ff6b15180eabeee6602b220d7abec6f34",
+    "straw-replay-completeness-checked.log": "ec108430daee3c98e615703fae5b27b83f730372c8fcdbc0b84499ff7bf19cd4",
+    "straw-replay-completeness-clippy-default.log": "8747348e707bfd51fd440c1920ff87aed6f6fe8286a8695b146878f5546d4a30",
+    "straw-replay-completeness-clippy.log": "8db0c1e755eefad62e78f3c5ad681c081ee755680df8d3a70fc4bbfe862eee26",
+    "straw-replay-completeness-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "straw-replay-completeness-native.log": "555771f0f215ec821d68122b86e6e42e6a81441f368190b06060b7e27d1c5a30",
+    "straw-replay-old-reject-proof.log": "80241064bae470a5eff5082bdb5daa63de46a1ce5c8931626bc8b2cd53f48500",
+    "verus-evidence.tar.gz": "bf5fd296b5c55b1460d3ea09bcb4f8d2b58f383b984e6301b3624c3d7d82be4b"
+  },
+  "artifact_policy": "Only hashes and relative input names are public. Exact proof inputs, raw logs and source are archived separately; later edits do not inherit these results."
+}

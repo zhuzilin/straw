@@ -1,0 +1,113 @@
+{
+  "passed": true,
+  "bug": "Failed catalog refresh applied an unconfirmed complete tail and advanced its cache offset before replay sync. If storage then lost only that tail while the client survived, the same object falsely rejected retries as catalog truncation; a fresh object recovered.",
+  "fix": "Track a confirmed durable byte lower bound separately. Invalidate on refresh error; next locked fresh open rebuilds every derived index/sequence. Reject a file or complete replay prefix below the lower bound before truncating; confirm only after successful sync. Normal successful refresh remains incremental; no format change.",
+  "verification": {
+    "verus_verified": 69,
+    "verus_errors": 0,
+    "verus_semantic_negatives": 37,
+    "verus_environment_negatives": 3,
+    "tlc_cases": 71,
+    "tlc_environment_negatives": 5,
+    "catalog_replay_states": 24,
+    "python_tests": 347,
+    "native_tests": 18,
+    "default_and_python_clippy": "passed",
+    "installed_wheel_and_protocol_campaigns": "passed",
+    "prior_67_tlc_cases": "Algorithm/config/environment-module hashes, states and results unchanged. Registry clarifies storage recovery with a surviving client and catalog-I/O stabilization."
+  },
+  "scope": {
+    "tla": "One serialized refresh, one confirmed prefix plus one complete unconfirmed owner frame. Failed sync can keep/lose the tail without resetting client cache. Conditional termination assumes stable I/O and fair retries; not a full byte-level/concurrent append/GC composition.",
+    "rust": "Actual replay start/invalidate/accepts/confirm guards for all u64 positions. Barrier dispatch, complete cache clearing, JSON apply/framing, locks and real I/O are not wholly Verus-proved.",
+    "runtime_regressions": "Native tests cover lost retain/release/seal/tombstone/receipt state, surviving tails after three failed barriers, and rejection without truncation of lost/incomplete confirmed prefixes.",
+    "limits": "Durable floor is a lower bound observed by this catalog object, not a new durable on-disk checkpoint. Failure can require full-history replay with no memory/time bound. Syscall shim is test-only and outside the Rust proof. This is separate from the earlier unexplained 8.68 s latency sample."
+  },
+  "local_reproduction": {
+    "before": {
+      "native_sha256": "1addb5cb05615d4b8de6da90395e07ce1445b3f6ee246bb32acdcad143395e9f",
+      "stable_bytes": 703,
+      "uncertain_bytes": 923,
+      "refresh_failure": "Input/output error (os error 5)",
+      "same_instance_retry": "UnsafeRecovery: Storage catalog was truncated",
+      "fresh_instance_gc": {
+        "open_packs": 0,
+        "owners": 0,
+        "reclaimed_bytes": 1201,
+        "reclaimed_files": 1,
+        "retained_packs": 0,
+        "tombstones": 1
+      }
+    },
+    "after": {
+      "native_sha256": "5639c42655549d5133d0bd70184b2787b9ee29b0849b2ce558360de6d2ebae40",
+      "stable_bytes": 703,
+      "uncertain_bytes": 923,
+      "refresh_failure": "Input/output error (os error 5)",
+      "same_instance_gc": {
+        "open_packs": 0,
+        "owners": 0,
+        "reclaimed_bytes": 1201,
+        "reclaimed_files": 1,
+        "retained_packs": 0,
+        "tombstones": 1
+      },
+      "same_instance_retry": "passed"
+    }
+  },
+  "measurement": {
+    "identities": {
+      "legacy": {
+        "wheel_sha256": "6dc4df80081e5ed89c1174305c1419111007d6d5c1fdf9bd3bb8ff57c74d25f0",
+        "native_sha256": "1addb5cb05615d4b8de6da90395e07ce1445b3f6ee246bb32acdcad143395e9f"
+      },
+      "fixed": {
+        "wheel_sha256": "bddf5f3a365956d28d972cf01438098d29bf9e319e1ff4bd583b002d7e4d9005",
+        "native_sha256": "5639c42655549d5133d0bd70184b2787b9ee29b0849b2ce558360de6d2ebae40"
+      }
+    },
+    "hosts": [
+      "client-1",
+      "client-2",
+      "client-3",
+      "client-4"
+    ],
+    "scope": "Each host/version group contains fresh independent trial pools on JuiceFS. A one-shot EIO and explicit preservation/loss of only the unconfirmed tail simulate storage recovery; no real service power failure is asserted. Each trial publishes 2 KiB. Retry release timing includes refresh/rebuild/sync/release and excludes injection, tail rewriting and GC. No latency guarantee or bandwidth claim.",
+    "legacy_trials": 8,
+    "legacy_lost_tail_false_rejections": 4,
+    "fixed_trials": 200,
+    "fixed_false_rejections": 0,
+    "retry_timing": {
+      "lost": {
+        "n": 100,
+        "p50_ms": 29.20496091246605,
+        "p95_ms": 51.17397382855415,
+        "p99_ms": 81.20058849453926,
+        "max_ms": 162.53692656755447
+      },
+      "survived": {
+        "n": 100,
+        "p50_ms": 26.917539536952972,
+        "p95_ms": 39.151402190327644,
+        "p99_ms": 46.86995595693588,
+        "max_ms": 52.085936069488525
+      }
+    },
+    "gc_reclaimed_packs": 208,
+    "data_cleaned": true,
+    "remote_cleanup": {
+      "client-1": true,
+      "client-2": true,
+      "client-3": true,
+      "client-4": true
+    }
+  },
+  "artifacts": {
+    "verification": "private-artifact-0103",
+    "measurement": "private-artifact-0104",
+    "prior_source_snapshot": "private-artifact-0056"
+  },
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

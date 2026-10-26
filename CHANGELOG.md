@@ -2,6 +2,49 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.4
+
+### Recovery and continuation
+
+- Preserve producer continuation payloads and independent reader, consumer and checkpoint roots during online GC. Sampling can resume from its durable continuation after process failure. Training applications must select and load a checkpoint with matching model/optimizer state and data cursors, and retain data needed for replay; straw does not automatically load a model checkpoint or recreate reclaimed data.
+- Resolve durable receipts before reopening old references when retrying accepted consumer-state, batch-plan, batch-ready and checkpoint-registration requests. Identical retries can succeed after those references have been legitimately reclaimed, without creating new ownership.
+- Persist staging cleanup intent, dependency recipes and generation-specific completion receipts. Recovery can finish an accepted handoff after a lost reply without releasing a later staging generation of the same reference.
+- Quarantine uncertain WAL writes, partial state application and caught Rust callback panics until recovery. Reject malformed journal/catalog events before appending, preserve confirmed prefixes during rebuild and reject changed pool/run or log identity. Harden counter arithmetic and deduplicate repeated task IDs before lease selection.
+
+### Storage and reads
+
+- Retry independent visibility delays in the header, footer, index, envelope, payload and tensor checksum chunks within one bounded budget. Every returned record remains authenticated; persistent corruption fails after the budget expires.
+- Reuse the authenticated index descriptor within a read attempt and buffer catalog replay with at most 64 KiB of read-ahead. Failed read attempts reopen their files. Replace recursive dependency walks with deduplicated worklists to support deep graphs.
+- Validate tensor dtype, shape and length before reading payloads. New tensors use 4 MiB checksum chunks; older tensors retain their stored chunk sizes. Checkpoint reactivation authenticates all reachable payloads outside the catalog lock with at most 1 MiB of payload scratch, then rechecks ownership and tombstones under the lock.
+- Preserve exact finite JSON floating-point values through serialization and recovery. Reject native payload providers whose traversals have the wrong length or swallow callback failures.
+
+### Garbage collection and publication safety
+
+- Retry directory barriers after unlink, including already absent files and missing parents. Batch shared-parent barriers and persist reclamation receipts only after deletion is durable. Preserve permanent tombstones; a cold-cache retain of a reclaimed root or dependency now returns `InvalidReference` before trying to read its missing payload.
+- Protect canonical paths and aliases, peer queues, active readers, checkpoints, producer continuations and pending publications. Public owner APIs reject internal `queue:` and `publication:` names. Offline cleanup preserves control files and fails closed on uncertain shared-pool discovery.
+- Preserve dependency holds and retry identities through failed publication setup, synchronization, staging and sealing. Repair missing ancestor barriers, roll back unpublished tails before writer reuse and seal completed standalone reservations so they can be collected. A failed GC hook with partial WAL effects forces fresh recovery before further writes.
+
+### Writer retirement
+
+- Add explicit `retire_writer(..., policy="recover" | "abandon")` with a durable fence, operation registry and reusable recovery receipts. Recovery stages complete results before releasing preparation ownership; abandonment preserves existing queue, reader and staging roots. A writer holding its gate reports `WriterBusy`, and a fenced writer cannot resume writing. Retirement depends on the documented lock, fence-visibility and in-flight-I/O contracts; timeouts alone do not establish death.
+- Reject busy writer metrics, seal and close operations without waiting on an in-flight callback. Unknown legacy preparation owners remain protected and are reported for separate recovery.
+
+### Compatibility and migration
+
+- Packed-record and WAL byte framing remain unchanged, and legacy catalog entries still replay. New queue staging-handoff events require updated coordinators: do not downgrade a queue writer after those events are stored. Upgrade all GC participants before relying on canonical-alias protection; an old collector can still delete an aliased owned file. Mixed versions do not gain a uniform cleanup/retry guarantee; historical leaks and already reclaimed legacy manifests are not automatically repaired. See [format compatibility](docs/FORMAT.md#queue-staging-handoff-receipts).
+- Rust callers must use read-only coordinator accessors (`state()`, `journal()`, `store()`, `limits()`, `epoch()`), publish through a separate `Store`, and replace explicitly typed `&mut Catalog` callbacks with `&mut LockedCatalog<'_>`. `Config::gc_enabled` returns `Result<bool>`. Existing Python call signatures are retained, with the retirement APIs added.
+- Previously rounded floats cannot be reconstructed. Old rounded request hashes and retries generated under a different tensor chunk policy can conflict after upgrade; preserve retry identities and review the [stored-format rules](docs/FORMAT.md). Catalog recipes and receipts currently grow without compaction.
+
+### Known performance regressions
+
+- In the same JuiceFS workload with online GC, median write throughput fell 20.7% and acceptance time for 64 tasks rose 34.8% versus 0.1.3; reads and synchronous WAL appends showed no comparable decline. This short comparison used two rounds per build with warm caches. It was not profiled, so the changes cannot be attributed to a particular safety protocol or proof-related refactoring. See the [complete samples and build hashes](verification/measurements/20261026-release-comparison.json).
+
+### CI and verification
+
+- Scan source distributions and wheel contents, including native libraries, for local paths and recognizable credentials. Remap Rust build paths before compilation so released binaries omit local source, home and toolchain locations; CI checks artifacts before upload and rejects findings without printing matched secrets.
+- Require pinned TLA+/Verus checks, semantic negative controls, environment-contract audits, Rust/Python tests, formatting and Clippy before release builds and publishing. Verification files are organized by protocol, WAL, GC, storage and offline recovery, with independently reviewable environment assumptions.
+- Freeze new formal-verification work for this release. Integrated proofs cover specific production bodies and models; complete retain/reactivation, cross-log recovery, authentication and liveness composition remain deferred and receive regression/fault-injection coverage. See the [release scope and boundaries](docs/FORMAL_VERIFICATION.md#verification-scope-for-this-release). Passing tests does not complete these proofs, and prior performance measurements do not establish this build's throughput or latency.
+
 ## 0.1.3
 
 - Retry temporarily zero-filled bytes anywhere in a published extent's header,

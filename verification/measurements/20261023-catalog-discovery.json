@@ -1,0 +1,158 @@
+{
+  "passed": true,
+  "change": "Discover managed pools through fallible fresh read-only open, preserve explicit/observed GC requirements across Config clones, reread the shared requirement after probing, and never recreate an auto-discovered missing catalog. Prevent successful no-op retain after stale/erroring stat and resulting acknowledged-data loss.",
+  "api_change": "Rust Config::gc_enabled now returns Result<bool>; Python signatures are unchanged.",
+  "verification": {
+    "verus_verified": 73,
+    "verus_errors": 0,
+    "verus_semantic_negatives": 43,
+    "verus_environment_negatives": 3,
+    "discovery_verus_semantic_negatives": 4,
+    "tlc_cases": 90,
+    "tlc_environment_negatives": 6,
+    "discovery_tlc_cases": {
+      "gc_discovery": {
+        "kind": "positive",
+        "states": 6,
+        "expected_violation": null
+      },
+      "gc_discovery_remembered": {
+        "kind": "positive",
+        "states": 5,
+        "expected_violation": null
+      },
+      "gc_discovery_explicit": {
+        "kind": "positive",
+        "states": 5,
+        "expected_violation": null
+      },
+      "gc_discovery_legacy": {
+        "kind": "positive",
+        "states": 5,
+        "expected_violation": null
+      },
+      "gc_discovery_stat_discovery": {
+        "kind": "algorithm_negative",
+        "states": 8,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "gc_discovery_error_is_absence": {
+        "kind": "algorithm_negative",
+        "states": 7,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "gc_discovery_forget_required": {
+        "kind": "algorithm_negative",
+        "states": 8,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "environment_discovery_open_lies": {
+        "kind": "environment_negative",
+        "states": 8,
+        "expected_violation": "NoLostAcknowledgedData"
+      }
+    },
+    "python_tests": 349,
+    "native_tests": 28,
+    "clippy_default_and_python": "passed",
+    "installed_wheel_and_protocol_campaigns": "passed",
+    "baseline_public_regressions": "Both added Python tests fail against the previous wheel: known catalog disappears; cold lookup returns ELOOP. Both pass on the new wheel.",
+    "prior_82_tlc_algorithm_config_and_state_counts": "unchanged; EnvironmentCatalog additionally defines discovery response domains",
+    "environment_contracts": 24,
+    "environment_consumers": 17,
+    "environment_registry_sha256": "b3efd56f35535f6f1943c51b1f3a2d103dd8ca089958e28135b783f87ddb0240"
+  },
+  "scope": {
+    "rust": "Verus proves the actual discovery decision function for all explicit/remembered/observation inputs. Shared atomic state, memory ordering, File::open, I/O error classification and full Config/Coordinator/GC composition remain unproved. The 73 count includes derived methods, not 73 APIs.",
+    "tla": "Separate finite discovery, acknowledged ownership handoff and deletion model. Retain is atomic and durable; no byte-level replay/lock/ownership refinement. Four positive configurations check all invariants and conditional termination. Three algorithm negatives and one environment-only negative select TypeOK and NoLostAcknowledgedData to reach actual deletion beyond the earlier ownership violation.",
+    "environment": "ENV-GC-DISCOVERY requires managed/legacy pool mode established before participants operate and trustworthy initial fresh-open NotFound. False initial open absence still gives a counterexample; live legacy-to-GC migration is excluded. Explicit online_gc=True avoids deciding legacy from initial absence, but does not prove the remaining I/O/locking contracts.",
+    "faults": "Private exact-path LD_PRELOAD injections only; not evidence of naturally occurring JuiceFS faults. New code avoids stat discovery, so all 160 armed fixed stat faults are unused. Separate 40 fresh-open EIO injections are consumed, return failure before acknowledgement, preserve the source owner, and succeed on retry.",
+    "timing": "Each fixed scenario has 40 first-retain samples; nearest-rank p99 equals the maximum. Four stat-labelled groups measure successful retains with unused stat faults. The open-error group measures failed return, not a successful retain. No latency guarantee or retry/time-out spec is inferred. The 276.66 ms untraced sample is unattributed.",
+    "limits": "This is a 2 KiB publication correctness campaign, not a 100 GB/TB bandwidth rerun. Earlier bandwidth measurements, binaries and untraced tail-latency anomalies remain separately scoped."
+  },
+  "measurement": {
+    "passed": true,
+    "root": "private-artifact-0125",
+    "remote": "private-artifact-0126",
+    "hosts": [
+      "client-1",
+      "client-2",
+      "client-3",
+      "client-4"
+    ],
+    "identities": {
+      "baseline": {
+        "wheel_sha256": "2238e10b1d9902b00e25eae016b0ff5449c0ce5e890cf57b92583baa6fb6176d",
+        "native_sha256": "2fd330aa1f95ecbc8a52f037f4b188a2d29b0e8d6d8c37795dc00211147bfa89"
+      },
+      "fixed": {
+        "wheel_sha256": "99a0f4e7b1bb2a9ddbeba7d0dc2c21b4c02716ff711eb6ca1ba85a45cab77260",
+        "native_sha256": "619706e5a322bed69d0c029d6fa4582d767cb2b83c4461bcf7ef88e3c4c2f7b4"
+      }
+    },
+    "shim_sha256": "feb634c59d9369534739358f0915a1240a11277ddd52f46649393e33df4170a4",
+    "baseline_false_successes_with_data_loss": 32,
+    "fixed_protected_handoffs": 200,
+    "fixed_open_errors_rejected_then_retried": 40,
+    "fixed_first_retain_ms": {
+      "cold-stat-missing": {
+        "n": 40,
+        "p50": 48.707177862524986,
+        "p95": 73.55698943138123,
+        "p99": 276.6568847000599,
+        "max": 276.6568847000599
+      },
+      "cold-stat-error": {
+        "n": 40,
+        "p50": 45.97137123346329,
+        "p95": 76.26023888587952,
+        "p99": 82.79167115688324,
+        "max": 82.79167115688324
+      },
+      "warm-stat-missing": {
+        "n": 40,
+        "p50": 40.01668095588684,
+        "p95": 71.6300830245018,
+        "p99": 82.3521837592125,
+        "max": 82.3521837592125
+      },
+      "warm-stat-error": {
+        "n": 40,
+        "p50": 33.945776522159576,
+        "p95": 75.8061408996582,
+        "p99": 95.53898870944977,
+        "max": 95.53898870944977
+      },
+      "cold-open-error": {
+        "n": 40,
+        "p50": 14.954589307308197,
+        "p95": 28.782382607460022,
+        "p99": 41.46232083439827,
+        "max": 41.46232083439827
+      }
+    },
+    "packs_reclaimed": 232,
+    "scope": "Four hosts, private native 2 KiB publications, managed pool established before default-config destination clients. Cold/warm stat ENOENT/EIO are armed; new discovery avoids those syscalls, so these faults remain unused. Separate fixed cold read-only open EIO rejects before acknowledgement, preserves source, then succeeds on retry. Initial open NotFound and live legacy-to-managed migration are excluded. First-retain timings distinguish failed open from successful adoption; baseline false-success timing is not a performance baseline.",
+    "data_cleaned": true,
+    "remote_cleanup": {
+      "client-1": true,
+      "client-2": true,
+      "client-3": true,
+      "client-4": true
+    }
+  },
+  "local_checks": {
+    "baseline_reproductions": 2,
+    "fixed_handoff_cases": 5,
+    "packs_reclaimed": 7
+  },
+  "artifacts": {
+    "measurement": "private-artifact-0127",
+    "verification": "private-artifact-0082",
+    "baseline_source_snapshot": "private-artifact-0122"
+  },
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

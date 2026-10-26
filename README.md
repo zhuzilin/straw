@@ -149,6 +149,7 @@ workers stop. [Multi-host benchmarks and trace replay](docs/BENCHMARKS.md).
 - [Records, tensors, tasks, recovery and GC](docs/USAGE.md)
 - [Filesystem deployment and file-count planning](docs/FILESYSTEM.md)
 - [Protocol, prior work and correctness boundaries](docs/PROTOCOL_AND_VERIFICATION.md)
+- [TLA+ / Verus verification](docs/FORMAL_VERIFICATION.md): layered coverage, production Rust proofs and counterexamples
 - [Executable verification](docs/VERIFICATION.md) and [binary format](docs/FORMAT.md)
 - [Wheel builds and release checks](docs/BUILDING.md)
 - [Release notes](CHANGELOG.md)
@@ -162,7 +163,8 @@ workers stop. [Multi-host benchmarks and trace replay](docs/BENCHMARKS.md).
 - [Wheels](.github/workflows/wheels.yml): build and verify Linux x86_64 wheels
   for CPython 3.10–3.13 (manylinux/glibc 2.28+), plus a source archive and rebuild
   check. Download the outputs from the run's **Artifacts** section. Version-tag
-  pushes publish the verified artifacts to PyPI through Trusted Publishing.
+  pushes publish the verified artifacts to PyPI through Trusted Publishing. The
+  same-commit complete verification workflow must pass before package uploads.
 
 Both workflows support **Actions → select workflow → Run workflow**. Tests also
 run on pushes and pull requests; wheels run on pull requests and `v*` tags.

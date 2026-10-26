@@ -1,0 +1,2313 @@
+{
+  "version": 2,
+  "purpose": "Reviewable environment contracts; statements are assumptions/models/evidence, not filesystem certification.",
+  "contracts": {
+    "ENV-INPUT": {
+      "layer": "input/runtime",
+      "status": "explicit_model",
+      "statement": "Filters may repeat IDs. Identity domains and sequence bounds are exploration bounds, not API quotas.",
+      "sources": [
+        "verification/common/tla/EnvironmentInputs.tla"
+      ],
+      "evidence": [
+        "tests/test_lease_selection.py"
+      ],
+      "review": {
+        "provided_by": "API callers supply filters and identities, including duplicates.",
+        "implementation_obligation": "Deduplicate complete scheduling keys before assigning leases; preserve the intended filter and batch semantics.",
+        "unproved": "JSON/API decoding into verified keys and complete coordinator behavior are not proved."
+      }
+    },
+    "ENV-RUNTIME": {
+      "layer": "input/runtime",
+      "status": "trusted_contract",
+      "statement": "Rust integer/collection behavior and Verus/vstd models are trusted; allocation success and compiled binaries are not proved. The standard mem::replace primitive returns the previous value and installs the supplied value; its explicit library contract moves the replay Vec without copying payloads.",
+      "sources": [
+        "rust/bounds.rs",
+        "rust/selection.rs",
+        "verification/common/verus/verus.rs",
+        "verification/common/verus/collections.rs"
+      ],
+      "evidence": [
+        "tests/test_tensor_granularity.py",
+        "verification/measurements/20261024-tensor-granularity.json",
+        "verification/storage/probes/tensor_granularity_probe.py",
+        "verification/storage/tla/ReadAttempt.tla"
+      ],
+      "review": {
+        "provided_by": "Rust standard library, Verus/vstd specifications, compiler, allocator and execution platform.",
+        "implementation_obligation": "Meet verified function preconditions and check arithmetic before allocation, indexing or persistent state updates.",
+        "unproved": "Library specifications, compiler correctness, allocation success and compiled binary conformance are trusted."
+      }
+    },
+    "ENV-VIS": {
+      "layer": "read visibility",
+      "status": "explicit_model",
+      "statement": "Each fresh open independently chooses missing regions. VisibleBy is an attempt number; defensive gaps can exceed documented JuiceFS behavior.",
+      "sources": [
+        "verification/storage/tla/EnvironmentVisibility.tla"
+      ],
+      "evidence": [
+        "verification/storage/probes/extent_visibility_probe.py",
+        "verification/measurements/20261023.json",
+        "verification/storage/tla/ReadAttempt.tla"
+      ],
+      "review": {
+        "provided_by": "Filesystem and client caches determine each fresh-open observation.",
+        "implementation_obligation": "Actually reopen on retry and validate all requested regions within the shared retry budget.",
+        "unproved": "Real cache behavior is not refined to the region model; no measured quantile establishes VisibleBy."
+      }
+    },
+    "ENV-AUTH": {
+      "layer": "read visibility",
+      "status": "assumption",
+      "statement": "Checksums authenticate the modeled bytes without collisions; immutable references and path identities are supplied correctly.",
+      "sources": [
+        "verification/storage/tla/EnvironmentAuthentication.tla"
+      ],
+      "evidence": [
+        "tests/test_extent_visibility.py",
+        "tests/test_extent_bounds.py",
+        "verification/storage/probes/positioned_extent_probe.rs",
+        "verification/measurements/20261024-positioned-range.json",
+        "tests/test_tensor_granularity.py",
+        "verification/measurements/20261024-tensor-granularity.json",
+        "verification/storage/probes/tensor_granularity_probe.py",
+        "verification/storage/tla/ReadAttempt.tla",
+        "rust/framing.rs",
+        "tests/test_wal_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Checksum primitives and the lower-level mapping from immutable references to file bytes.",
+        "implementation_obligation": "Authenticate the correct bytes and bind validated identities, lengths and offsets to the returned reference. In WAL adapters, compute the header digest over exactly 24 prefix bytes and the frame digest over the full 56-byte header plus the declared payload. framing.rs proves checks against those supplied digests; computing them over the correct spans remains a caller obligation.",
+        "unproved": "Collision freedom, cryptographic implementation and end-to-end reference/byte correspondence are not proved."
+      }
+    },
+    "ENV-SYNC": {
+      "layer": "durability",
+      "status": "assumption_in_model",
+      "statement": "Successful file/directory sync makes preceding writes/name changes durable; errors may occur after partial effects.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "verification/wal/checks/crash_campaign.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem, OS and storage service implement successful file and directory durability barriers.",
+        "implementation_obligation": "Issue the right barrier after all relevant effects and propagate failures without interpreting them as rollback.",
+        "unproved": "Actual syscall ordering, descriptor/path correspondence and service/device power-loss durability are not proved."
+      }
+    },
+    "ENV-DELETE-FAILURE": {
+      "layer": "durability",
+      "status": "explicit_model",
+      "statement": "After failed deletion attempts, a retry can see current absence or a crash-restored durable name.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "tests/test_online_gc.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem responses and crash recovery may preserve partial deletion effects or restore a durable name.",
+        "implementation_obligation": "Retry deletion and required directory barriers even when a failed attempt already removed the visible name.",
+        "unproved": "Complete crash recovery and real I/O adaptation to the modeled name states are not proved."
+      }
+    },
+    "ENV-WAL-RECOVERY": {
+      "layer": "durability",
+      "status": "explicit_model",
+      "statement": "A complete uncertain frame may survive and become durable on recovery; a prior durable frame cannot disappear. Value-level model excludes byte-level framing. Storage recovery after failed catalog replay sync may lose an unconfirmed tail while the client process survives; parsed cache state is not yet confirmed durable.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "evidence": [
+        "verification/wal/checks/crash_campaign.py",
+        "tests/test_commit_protocol.py",
+        "rust/gc.rs",
+        "verification/wal/probes/catalog_replay_probe.py"
+      ],
+      "review": {
+        "provided_by": "Storage preserves confirmed frames; an uncertain complete frame may survive, including while a client process survives.",
+        "implementation_obligation": "Validate framing, respect the confirmed prefix, discard unconfirmed derived caches and sync recovered state before use.",
+        "unproved": "Byte-level replay, all cache reconstruction and composition with the full queue/catalog protocol are not proved."
+      }
+    },
+    "ENV-CATALOG-SERIAL": {
+      "layer": "ownership/peers",
+      "status": "assumption_in_model",
+      "statement": "Catalog mutation, GC scan-to-tombstone and reactivation recheck-to-owner-append serialize under a stable shared lock inode, with fresh durable state. Payload authentication may run outside the lock but cannot authorize from a stale snapshot.",
+      "sources": [
+        "verification/common/tla/EnvironmentCatalog.tla"
+      ],
+      "evidence": [
+        "verification/gc/probes/gc_cross_client.py",
+        "tests/test_online_gc.py",
+        "tests/test_consumer_rewind.py",
+        "rust/gc.rs",
+        "rust/identities.rs",
+        "rust/catalog_state.rs",
+        "rust/catalog_transaction.rs"
+      ],
+      "review": {
+        "provided_by": "POSIX advisory locking, truthful device/inode metadata and a stable shared catalog inode throughout active transactions; straw must establish correctly bound critical sections and durable state.",
+        "implementation_obligation": "Keep scan-to-mark and recheck-to-owner-append inside the correct lock after refresh. Bind every Config argument to the opened pool/run; check fresh-open device/inode against the locked log; reject uncertain cached state before all operations and successful transaction return.",
+        "unproved": "Actual pool/run and device/inode comparisons, index/snapshot loops and the transaction entry/exit dispatcher are Verus-checked. The dispatcher now composes lock identity checks, recovery before activation and final context validation under ENV-CATALOG-TRANSACTION. Native lock/open/metadata/refresh/callback correspondence and complete durable history refinement remain unproved. Detecting replacement at entry cannot fence replacement during an active transaction."
+      }
+    },
+    "ENV-PEERS": {
+      "layer": "ownership/peers",
+      "status": "assumption",
+      "statement": "Other queues/readers/checkpoints obey ownership transitions; release means actual read completion, and complete transitive closures are supplied.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentReaders.tla"
+      ],
+      "evidence": [
+        "verification/protocol/checks/ownership_model.py",
+        "tests/test_consumer_rewind.py",
+        "verification/protocol/tla/QueueRecordWorkflow.tla",
+        "verification/protocol/probes/queue_record_probe.rs"
+      ],
+      "review": {
+        "provided_by": "Other queues, readers, checkpoints and their callers follow the ownership protocol.",
+        "implementation_obligation": "Supply complete closures and retain ownership until actual reads and dependent handoffs finish.",
+        "unproved": "Every peer implementation and application ownership lifecycle are not verified; arbitrary noncompliant writers are excluded."
+      }
+    },
+    "ENV-CLOCK-ABSTRACT": {
+      "layer": "coordinator/clock",
+      "status": "partial_model",
+      "statement": "Lease expiry is a Boolean nondeterministic event; numeric clocks, drift, queueing and clock pathologies are not modeled.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentClock.tla"
+      ],
+      "evidence": [
+        "tests/test_filesystem_queue.py"
+      ],
+      "review": {
+        "provided_by": "The model supplies nondeterministic Boolean expiry; deployment clocks and lease adapters supply actual observations.",
+        "implementation_obligation": "Check current lease identity and expiry at the specified authorization point.",
+        "unproved": "Numeric clock drift, clock jumps, delayed RPC queues and their correspondence to Boolean expiry are not modeled."
+      }
+    },
+    "ENV-FENCING": {
+      "layer": "coordinator/clock",
+      "status": "assumption",
+      "statement": "Exactly one externally fenced coordinator can mutate a queue; an exclusive_owner string is not enforcement.",
+      "sources": [],
+      "evidence": [
+        "tests/test_filesystem_queue.py"
+      ],
+      "review": {
+        "provided_by": "External coordinator ownership and fencing prevent concurrent authorized mutators.",
+        "implementation_obligation": "Require real fencing for exclusive operation; an owner string alone cannot implement it.",
+        "unproved": "Leader election, split-brain recovery and the external fencing mechanism are not proved."
+      }
+    },
+    "ENV-FAIR": {
+      "layer": "progress",
+      "status": "assumption_in_model",
+      "statement": "A continuously enabled modeled action eventually runs; this is neither per-task fairness nor eventual I/O success.",
+      "sources": [
+        "verification/common/tla/EnvironmentProgress.tla",
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [],
+      "review": {
+        "provided_by": "The modeled scheduler eventually executes each continuously enabled action required by the property.",
+        "implementation_obligation": "Keep required work enabled and connect executable retries to the modeled actions.",
+        "unproved": "No implementation scheduler fairness, per-task nonstarvation or elapsed-time bound follows from this premise."
+      }
+    },
+    "ENV-STABILIZE": {
+      "layer": "progress",
+      "status": "assumption_in_model",
+      "statement": "Modeled GC/catalog I/O faults eventually stop, with no bound on preceding retries. TLA Stop stays enabled until chosen; the Verus GC proof has a finite index after which no crashes or failed modeled I/O occur.",
+      "sources": [
+        "verification/common/tla/EnvironmentProgress.tla",
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [],
+      "review": {
+        "provided_by": "The modeled storage/failure environment eventually stops the specified crashes and I/O errors.",
+        "implementation_obligation": "Preserve retryable state throughout the failure period and handle successful responses after recovery.",
+        "unproved": "Deployment stabilization is not proved or bounded; this premise alone does not cause a caller to retry."
+      }
+    },
+    "ENV-VERUS-PROGRESS": {
+      "layer": "progress",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Generic controller completion is derived from eventual stable modeled effect outcomes, weak fairness for effects and caller retries, and histories using the production initial/advance View. No direct eventual-stage-success premise remains. Real I/O, cached-response and recovery adapters are not mechanically shown to produce these histories.",
+      "sources": [
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "verification/protocol/verus/retry_liveness.rs",
+        "rust/protocol.rs",
+        "rust/wal.rs"
+      ],
+      "review": {
+        "provided_by": "Scheduling and caller retries, eventually successful valid stage effects, and faithful mapping of real calls/recovery to modeled events.",
+        "implementation_obligation": "Restart terminal failed attempts safely, retain retry identity and durable effects, and establish valid controller histories and eventual successful effect responses before applying the completion theorem.",
+        "unproved": "Filesystem recovery alone does not prove all application-stage effects succeed: valid references, lock progress, cached replies, actual syscall outcomes and full recovery/refinement remain adapter obligations."
+      }
+    },
+    "ENV-VERUS-CATALOG": {
+      "layer": "ownership/peers",
+      "status": "direct_unproved_premise",
+      "statement": "Real histories are related to serialized durable catalog model steps; the Rust I/O adapter has no conformance proof.",
+      "sources": [
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "rust/catalog_state.rs",
+        "rust/catalog_json.rs",
+        "rust/gc.rs",
+        "verification/wal/tla/CatalogTransaction.tla",
+        "rust/catalog_log.rs",
+        "rust/catalog_transaction.rs"
+      ],
+      "review": {
+        "provided_by": "The real catalog adapter must supply a history corresponding to serialized durable model transitions.",
+        "implementation_obligation": "Map lock, refresh, validation, append, sync, replay and partial failures to permitted model steps. Reject malformed/non-applicable events before WAL effects and apply the admitted operation sequence after synchronization.",
+        "unproved": "The actual six-index View, ordered typed application, exact admission equivalence, owner union and GC snapshot are proved. catalog_log.rs proves joint index/cursor/sequence/rebuild transitions, typed frame-history folds, exact partial-apply prefixes, stored append plans and matching recovery confirmation. Raw-record decoding/run binding and catalog Target semantic history are now composed under serde, Resolver and KeySet contracts; actual catalog_append now binds input fields/run/serialization to those operations and preserves interpreted history through append, while LogState::new establishes its empty base. catalog_equivalence proves unique completed catalog indexes/cursor/sequence for the same raw prefix under ENV-JSON-VALUE-CONSISTENCY and the explicit String content-key premise; unordered staging updates commute. This does not establish which physical prefix survives. Path resolution, closure caches, native lock/open/context correspondence and complete durable adapter/history refinement remain unproved. The actual catalog_transaction dispatcher proves lock/fresh-identity/recovery/callback/exit ordering under separate primitive and callback contracts; this does not prove all Native Transaction adapters. CatalogTransaction abstracts wire and semantic admission as ValidEvent. A confirmed LogState is not by itself evidence that physical synchronization occurred. The actual LogState::append_to now composes admission, the shared byte writer and confirmation under ENV-APPEND-IO; wal_sink::Appender proves generic Writer conformance under File/Hooks primitives; native primitives remain open."
+      }
+    },
+    "ENV-PERFORMANCE": {
+      "layer": "deployment/performance",
+      "status": "measurement_only",
+      "statement": "Observed p99/throughput depends on workload and client/cache settings; it is not a hard latency bound or a formal progress premise.",
+      "sources": [],
+      "evidence": [
+        "verification/measurements/20261023.json",
+        "verification/measurements/20261023-control.json",
+        "verification/gc/probes/gc_history_probe.py",
+        "verification/measurements/20261024-positioned-range.json",
+        "tests/test_tensor_granularity.py",
+        "verification/measurements/20261024-tensor-granularity.json",
+        "verification/storage/probes/tensor_granularity_probe.py",
+        "verification/measurements/20261024-typed-preflight.json",
+        "verification/storage/probes/read_latency_probe.py",
+        "verification/storage/probes/read_latency_trace.c",
+        "verification/measurements/20261024-read-latency.json",
+        "verification/common/probes/runtime_performance.py",
+        "verification/measurements/20261025-runtime-performance.json"
+      ],
+      "review": {
+        "provided_by": "The measured deployment, workload, cache state and competing clients determine observed costs.",
+        "implementation_obligation": "Record binary, workload, sample count, timing scope and configuration; keep physical I/O separate from sparse offsets.",
+        "unproved": "Measurements do not prove a latency bound, bandwidth SLA, fairness or eventual recovery."
+      }
+    },
+    "ENV-GC-IO": {
+      "layer": "durability",
+      "status": "assumption_in_model",
+      "statement": "For a permanently tombstoned pack, a successful modeled Unlink (including trustworthy NotFound) means current absence; SyncParent success persists it. Partial failure may change current/durable state. No external recreation; real stat/unlink/fsync adapter conformance is unproved.",
+      "sources": [
+        "verification/common/verus/environment.rs",
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "evidence": [
+        "tests/test_online_gc.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem unlink and directory sync responses for a permanently tombstoned path; peers do not recreate it.",
+        "implementation_obligation": "Call unlink, accept only success or trustworthy unlink NotFound, and sync every affected parent before completion.",
+        "unproved": "Trustworthiness of unlink NotFound and real syscall/controller/catalog correspondence are not proved."
+      }
+    },
+    "ENV-GC-RETRY": {
+      "layer": "progress",
+      "status": "assumption_in_model",
+      "statement": "After a failed deletion attempt, an external caller eventually invokes GC again. This is separate from fair I/O scheduling; no built-in retry daemon or wall-clock retry bound is proved.",
+      "sources": [
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "verification/gc/verus/gc_liveness.rs"
+      ],
+      "review": {
+        "provided_by": "An external caller invokes GC again after a failed attempt.",
+        "implementation_obligation": "Keep pending deletion obligations and reset the failed controller for a subsequent invocation.",
+        "unproved": "There is no automatic retry daemon or proof that every real caller retries."
+      }
+    },
+    "ENV-STRING-KEY": {
+      "layer": "input/runtime",
+      "status": "trusted_contract",
+      "statement": "Standard String hashing/equality obey the Verus HashSet/HashMap key model. Explicit precondition of the executable reclamation index, traversal frontier and namespace cache; vstd does not discharge this String-specific premise. No project assume/admit is added. Catalog business equivalence additionally requires the explicit string_content_contract: opaque logical String keys with equal character views are identical. This is a key abstraction, not memory-layout or allocation equality. Namespace cache lookup also requires namespace_identity::borrowed_strings: the standard HashMap String/str borrowed-key relation is exactly a matching character key and value. This preserves native allocation-free lookup.",
+      "sources": [
+        "verification/common/verus/environment.rs",
+        "rust/reclamation.rs",
+        "rust/traversal.rs",
+        "rust/identities.rs",
+        "verification/wal/verus/catalog_json_equivalence.rs",
+        "rust/gc_mark.rs",
+        "rust/closure.rs",
+        "verification/protocol/verus/queue_transition_roots.rs",
+        "rust/namespace_identity.rs",
+        "rust/queue_roots.rs",
+        "rust/queue_gc.rs"
+      ],
+      "evidence": [
+        "rust/consumption.rs",
+        "rust/catalog_state.rs"
+      ],
+      "review": {
+        "provided_by": "Standard String hashing/equality satisfy the vstd HashSet/HashMap key contract.",
+        "implementation_obligation": "Use the verified set/frontier operations with the required key contract and correctly derived identities. Use the identity cache with correctly resolved, stable path bindings. Actual catalog indexes and complete root/candidate loops also require these key laws. The queue continuation-root theorem must derive the selected attempt identity from the actual cloned lease. It explicitly requires string_content_contract; it does not infer opaque key identity from character equality without that premise.",
+        "unproved": "vstd does not discharge the String-specific key/content identity laws. They remain explicit library/model premises; no global assume or executable String implementation is added. Native namespace identity conformance remains open."
+      }
+    },
+    "ENV-STREAM": {
+      "layer": "input/runtime",
+      "status": "explicit_model",
+      "statement": "Caller-provided payloads may return short/long traversals, empty chunks, change advertised length or ignore callback errors. Providers must terminate; arbitrary caller code is not preempted. Content equality still relies on checksums.",
+      "sources": [
+        "verification/common/tla/EnvironmentInputs.tla",
+        "rust/stream.rs",
+        "rust/payload.rs"
+      ],
+      "evidence": [
+        "tests/native.rs"
+      ],
+      "review": {
+        "provided_by": "Caller-defined providers can under/over-deliver, change advertised lengths or ignore callback errors; they must terminate.",
+        "implementation_obligation": "Snapshot length once, check both traversals and retain callback failures even if the provider ignores them.",
+        "unproved": "Arbitrary provider termination, trait/closure dispatch and the complete byte/hash/I/O loop are not proved."
+      }
+    },
+    "ENV-GRAPH": {
+      "layer": "ownership/peers",
+      "status": "assumption_in_model",
+      "statement": "Reference identities denote a finite immutable graph; decoded expansion returns every record/dependency. A cached closure includes all reachable paths. Hash/JSON/I/O correspondence remains unproved; finite model also explores repeated edges and cycles.",
+      "sources": [
+        "verification/common/tla/EnvironmentGraph.tla",
+        "rust/closure.rs"
+      ],
+      "evidence": [
+        "tests/test_dependency_traversal.py",
+        "verification/storage/probes/dependency_probe.py",
+        "verification/offline/tla/OfflineRoots.tla",
+        "tests/test_offline_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Reference decoding and the closure/cache layer provide a finite immutable graph with complete successor and cache results.",
+        "implementation_obligation": "Enumerate every dependency, preserve identity binding and only reuse complete closures.",
+        "unproved": "The actual generic closure::collect now proves complete finite graph traversal and cache preservation under ENV-CLOSURE-SOURCE, with empty-cache base; resolve rejects transitive tombstones. Native node JSON/digest/Reader/pack mapping, cache-context binding and ownership/log/GC composition remain unproved. The finite TLA+ models retain complete-cache assumptions at their own boundary."
+      }
+    },
+    "ENV-READ": {
+      "layer": "read visibility",
+      "status": "explicit_model",
+      "statement": "A modeled read_exact returns all requested bytes, short EOF or an I/O error; failed attempts may have consumed a prefix but cannot authorize a root. The single-attempt scan model allows persistent corruption, assumes collision-free authentication, and does not prove real syscall termination or closure/lock conformance. A successful buffered refill can return any positive prefix bounded by capacity and snapshot remainder; read-ahead is not validation.",
+      "sources": [
+        "verification/common/tla/EnvironmentRead.tla"
+      ],
+      "evidence": [
+        "tests/test_consumer_rewind.py",
+        "rust/store.rs",
+        "verification/wal/tla/CatalogReadBuffer.tla",
+        "verification/storage/probes/positioned_extent_probe.rs",
+        "verification/measurements/20261024-positioned-range.json"
+      ],
+      "review": {
+        "provided_by": "Filesystem read responses supply full bytes, short reads or errors; a failed read may already consume a prefix.",
+        "implementation_obligation": "Count actual bytes, reject incomplete/authentication-failed scans and never treat read-ahead as validation.",
+        "unproved": "Syscall termination and correspondence of buffers, file positions and returned bytes to the model are not proved."
+      }
+    },
+    "ENV-GC-STAT": {
+      "layer": "durability",
+      "status": "explicit_model",
+      "statement": "Advisory stat presence may be stale in either direction. Pre-unlink stat length is diagnostic accounting, not a durability fact. Actual absence after successful unlink or trustworthy unlink NotFound is a separate ENV-GC-IO contract.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "evidence": [
+        "rust/gc.rs",
+        "verification/gc/probes/gc_stat_probe.py",
+        "verification/gc/probes/gc_stat_fault.c"
+      ],
+      "review": {
+        "provided_by": "Advisory filesystem metadata may report stale presence or absence.",
+        "implementation_obligation": "Use stat only for diagnostic accounting; always issue unlink for pending paths.",
+        "unproved": "Natural observations cannot rule out stale stat; unlink response truthfulness remains a separate assumption."
+      }
+    },
+    "ENV-GC-DISCOVERY": {
+      "layer": "ownership/peers",
+      "status": "assumption_in_model",
+      "statement": "Managed/legacy mode is established before clients operate; hot migration is not modeled. Advisory presence stat may be stale or fail. Initial automatic discovery trusts fresh open: NotFound means no managed catalog. Later path lookups may fail or return NotFound. Real open/atomic sharing and full ownership composition remain unproved.",
+      "sources": [
+        "verification/common/tla/EnvironmentCatalog.tla"
+      ],
+      "evidence": [
+        "rust/discovery.rs",
+        "rust/store.rs",
+        "verification/gc/probes/catalog_discovery_probe.py"
+      ],
+      "review": {
+        "provided_by": "Pool initialization fixes mode before clients operate; initial fresh open NotFound truthfully indicates no managed catalog.",
+        "implementation_obligation": "Propagate other open errors and never downgrade a shared requirement for GC once established.",
+        "unproved": "Initial open truthfulness, atomic sharing and live legacy-to-managed migration are not proved."
+      }
+    },
+    "ENV-DIRECTORY": {
+      "layer": "persistence/recovery",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Existing directory names may be nondurable after partial mkdir or failed barriers, including work by another client. mkdir failure may leave any created prefix; sync failure may leave its persistence effect. Successful directory sync persists child entries, not ancestor entries. A finite resolved parent chain reaches a stable root; directory identities, symlink aliases and mount topology are not externally changed during use. Complete create_dir_all/canonicalize/path enumeration and filesystem refinement are unproved; all resolved ancestors must be accessible for directory sync.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "rust/directory_io.rs"
+      ],
+      "evidence": [
+        "rust/directory.rs",
+        "rust/store.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem creation/barriers and stable accessible directory identities, aliases, mounts and root supply the resolved parent chain.",
+        "implementation_obligation": "Account for partial creation and sync every required ancestor even if its name already exists. The production directory_io::sync_all body now proves ordered complete barrier coverage and the exact attempted prefix on error; successful earlier barriers survive failures.",
+        "unproved": "Native create_dir_all/canonicalize/ancestors completeness and binding of each callback to the enumerated directory, alias persistence and real filesystem durability remain unproved; the actual barrier loop is now verified under the individual Barrier contract."
+      }
+    },
+    "ENV-STRING-ORDER": {
+      "layer": "input/runtime",
+      "status": "trusted_contract",
+      "statement": "Standard String ordering obeys vstd laws_cmp::obeys_cmp. Explicit precondition of the actual publication-holding union loop; the proof does not derive the String-specific standard-library contract. Allocation success and compiled/runtime behavior remain trusted.",
+      "sources": [
+        "verification/common/verus/environment.rs",
+        "rust/holding.rs",
+        "rust/gc_mark.rs",
+        "rust/closure.rs"
+      ],
+      "evidence": [
+        "rust/catalog_state.rs"
+      ],
+      "review": {
+        "provided_by": "Standard String ordering satisfies vstd laws_cmp::obeys_cmp.",
+        "implementation_obligation": "Use the verified BTreeSet union, catalog clone/iteration and root-collection operations with the standard String ordering contract and complete decoded root sets.",
+        "unproved": "The String-specific ordering law and surrounding set/closure conversions are not proved."
+      }
+    },
+    "ENV-PUBLICATION-RETRY": {
+      "layer": "input/runtime",
+      "status": "explicit_model",
+      "statement": "A caller may retry the same in-flight publication identity with different roots and receive a conflict. A later correct retry is modeled explicitly for conditional progress. Other clients may release the original source after the durable internal hold exists; they do not directly mutate/release internal holder identities. Retry roots are complete valid immutable pack closures supplied by the lower layer; catalog changes are atomic/durable in this model.",
+      "sources": [
+        "verification/common/tla/EnvironmentInputs.tla"
+      ],
+      "evidence": [
+        "tests/test_online_gc.py",
+        "rust/store.rs",
+        "rust/gc.rs"
+      ],
+      "review": {
+        "provided_by": "Callers may conflict and later retry correctly; peers respect internal holders and supply valid complete immutable closures.",
+        "implementation_obligation": "Preserve old held roots while adding retry roots; release the internal hold only after a successful protected handoff.",
+        "unproved": "Closure construction, catalog I/O and the full call-site handoff are not mechanically composed."
+      }
+    },
+    "ENV-PUBLICATION-FINALIZE": {
+      "layer": "catalog/publication",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Data are already durable in a registered open file. Serialized catalog operations establish complete staging or sealing; a reported failure may leave the prior durable Boolean state or its successful effect. Caller retries after errors; eventual stable I/O and weak fairness support progress. Packed callers explicitly close before reclamation. Peers respect staging and never append to sealed paths. Byte replay, raw-reference-to-file correspondence and physical deletion are abstracted.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "evidence": [
+        "tests/test_online_gc.py",
+        "rust/store.rs",
+        "rust/finalization.rs"
+      ],
+      "review": {
+        "provided_by": "A complete registered file is durable; serialized catalog calls can report errors after durable effects, with compliant peers.",
+        "implementation_obligation": "Stage before sealing; acknowledge standalone publication only after both succeed and keep packed files open until explicit seal.",
+        "unproved": "Byte replay, reference-to-file mapping, multi-file publication and physical GC are not composed in this model."
+      }
+    },
+    "ENV-PENDING-PUBLICATION": {
+      "layer": "durability/recovery",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A complete file and open registration exist before a data-sync response. Sync success certifies its bytes durable; failure may have had no effect or persisted them. Peers do not replace or write these private paths. Retry authentication may encounter persistent corruption. Stable I/O, weak fairness and caller retries support eventual success or corruption rejection, not guaranteed success after data loss. Process restart, rename responses, pathname/descriptor correspondence and final ownership/GC handoff are not composed.",
+      "sources": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "evidence": [
+        "tests/test_pending_publication.py",
+        "rust/store.rs",
+        "rust/pending.rs"
+      ],
+      "review": {
+        "provided_by": "A complete registered private file exists; successful sync certifies durability, failure may persist bytes, and peers do not replace its path.",
+        "implementation_obligation": "Save the exact pending description before sync; fence conflicting retries, repeat unknown barriers and authenticate before returning.",
+        "unproved": "Assignment/syscall order, descriptor binding, rename, process restart and final ownership/GC handoff are not composed."
+      }
+    },
+    "ENV-NAMESPACE": {
+      "layer": "ownership/namespace",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Stable in-pool symlinks may alias the same regular pack path. Resolution supplies one truthful pool-relative identity across participants and replay, including missing targets. Successful readlink returns the actual link target; InvalidInput/NotFound used for normal or missing components must not conceal a symlink. Previously absent private prefixes are created as ordinary directories/files, not replaced by aliases. Relevant namespace/alias bindings remain stable across caching and history replay. Bind-mount aliases and inode/hard-link equivalence are not unified.",
+      "sources": [
+        "verification/common/tla/EnvironmentNamespace.tla"
+      ],
+      "evidence": [
+        "tests/test_path_identity.py",
+        "rust/store.rs",
+        "rust/gc.rs",
+        "tests/test_catalog_encoding.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem path resolution and stable pool namespace, plus the lower-level straw resolver and catalog adapter.",
+        "implementation_obligation": "Normalize pack, closure, owner, tombstone and receipt names consistently, including legacy replay; preserve canonical bindings in the cache and reject errors or escapes. Before writing path_encoding=1, normalize all owner, pack, tombstone and receipt paths. Replay may trust this marker only for compliant producers; absent markers still require namespace resolution and unknown encodings must be rejected.",
+        "unproved": "Real canonicalize/readlink behavior and truthful absence, missing-prefix resolution, String/path conversions, JSON replay and cache-to-filesystem conformance are not mechanically proved. Retargeted aliases, bind-mount aliases and concurrent namespace replacement are excluded. JSON normalization, marker truthfulness and decoder dispatch are not mechanically refined to NamespaceEncoding; the actual numeric encoding classifier is verified separately."
+      }
+    },
+    "ENV-INCOMPLETE": {
+      "layer": "publication failure/recovery",
+      "status": "assumption_in_model",
+      "statement": "One live owning writer controls its private append path. Its saved pre-write offset identifies the entire immutable acknowledged prefix. Successful truncation preserves that prefix and sets the requested length; failed truncation may remove some/all unpublished suffix. Process restart loses this process-local cleanup descriptor.",
+      "sources": [
+        "verification/storage/tla/EnvironmentIncomplete.tla"
+      ],
+      "evidence": [
+        "tests/test_incomplete_publication.py",
+        "rust/store.rs",
+        "rust/python.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem seek/truncate/namespace responses, process identity and exclusive writer ownership; existing sync/unlink contracts provide durability and absence.",
+        "implementation_obligation": "Capture the rollback descriptor before writing, never truncate below that saved offset, keep it across failed cleanup, sync rollback/removal before reusing the writer or sealing its unpublished final name, and reject inherited writer operations before taking their mutexes. A final name already tombstoned by GC satisfies retirement.",
+        "unproved": "Real offset capture, file identity, syscalls, binding-level PID guard placement, pending handoff and catalog dispatch are not refined to the model. Actual generic controller and PID comparison functions are proved, not the complete I/O adapter. Crashed-writer recovery remains outside this cleanup model. Fresh registration/create failures are separately modeled by PublicationPreparation; their complete I/O adapter remains unproved."
+      }
+    },
+    "ENV-GC-PARENT": {
+      "layer": "GC namespace preparation and retry",
+      "status": "explicit_model",
+      "statement": "Sealed reservations can have missing private parent prefixes after failed writer setup. Opening an existing parent may report NotFound before I/O stabilizes; this is not durable-absence evidence. mkdir creates missing unused prefixes or leaves existing directory identities/content unchanged; failed creation/barriers may already have effects. Stable names are not rebound to old directories. Deletion sync persists absence; newly created empty placeholder directories need not themselves survive for absence to remain true.",
+      "sources": [
+        "verification/gc/tla/EnvironmentParentRepair.tla"
+      ],
+      "evidence": [
+        "tests/test_gc_missing_parent.py",
+        "rust/gc.rs",
+        "rust/directory.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem directory open/create/sync semantics, stable private namespace identities and permission to create missing prefixes; eventual I/O recovery and caller retry for progress.",
+        "implementation_obligation": "After trusted unlink, sync an existing parent. On parent-open NotFound, recreate and sync before receipt; preserve deletion obligations through creation/sync/receipt errors. Other open errors propagate. A subsequent attempt that finds a repaired parent present still needs its deletion barrier.",
+        "unproved": "Actual gc_io::classify, unlink and sync_parent now verify missing/error dispatch, mandatory unlink and sync/repair ordering; directory_io::sync_all verifies the actual ancestor-barrier loop. Native ErrorKind mapping, mkdir/path/ancestor enumeration, aggregate repair durability, file identity and complete GC composition remain separate boundaries. Namespace rebinding, device internals and crashed-open-writer recovery are outside this model."
+      }
+    },
+    "ENV-WRITER-LIFETIME": {
+      "layer": "writer process lifecycle and GC eligibility",
+      "status": "partial_model",
+      "statement": "Process execution and already-authorized storage completion are independent: kernel/server work may complete while its process is paused or after permanent process death. New process work needs a running process; timeout/suspicion or certified process death does not fence or drain in-flight work. Only the owning writer normally seals after its operation resolves. All modeled storage operations may succeed while a crashed writer leaves an open catalog reservation forever; automatic crashed-writer retirement is not implemented.",
+      "sources": [
+        "verification/gc/tla/EnvironmentWriter.tla"
+      ],
+      "evidence": [
+        "verification/gc/tla/WriterLifetime.tla",
+        "verification/storage/probes/writer_lifetime_probe.py",
+        "rust/store.rs",
+        "rust/gc.rs"
+      ],
+      "review": {
+        "provided_by": "OS process scheduling/death and the owning straw writer lifecycle; catalog serialization and compliant peers supply the separate ownership boundary.",
+        "implementation_obligation": "Keep open reservations protected during in-flight operations and reject unsafe close. Any future collector retirement must fence all old writer operations, including work authorized before a pause, before sealing; a PID, timeout, or lock acquisition alone is not a proved fence.",
+        "unproved": "The finite model now explicitly permits storage completion after process death, but does not refine Rust close/GC adapters, compose complete publication ownership/byte persistence, or implement durable writer fencing and drain certification. Current safety deliberately preserves open reservations after process death; failure detectors and actual stale-operation draining remain outside the implementation."
+      }
+    },
+    "ENV-PREPARATION": {
+      "layer": "publication setup and uncertain effects",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A new private publication name is unique and never written or rebound by peers. Catalog registration and file opening can fail after taking effect. Setup has written no payload before offset capture. A live caller retries cleanup or closes after errors; successful unlink means actual absence, and parent barriers certify durable removal, repairing missing unused parents when needed. This model does not recover a crashed writer. Dependency hold creation and release can also report failure after durable effects. A failed preparation has not exposed a complete publication, but its dependency hold remains available for retry until explicit seal/close. Multiple failed requests may coexist. A complete handoff retains responsibility for its own dependency owner.",
+      "sources": [
+        "verification/storage/tla/EnvironmentPreparation.tla",
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "evidence": [
+        "tests/test_publication_preparation.py",
+        "rust/incomplete.rs",
+        "rust/store.rs",
+        "verification/storage/tla/PublicationPreparation.tla",
+        "verification/storage/probes/preparation_probe.py",
+        "verification/storage/probes/preparation_fault.c",
+        "verification/protocol/tla/ProvisionalHold.tla",
+        "tests/test_provisional_holds.py",
+        "verification/protocol/tla/SharedRecordWorkflow.tla",
+        "verification/protocol/probes/workflow_extent_probe.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem open/unlink/directory barrier responses, unique private names, serialized catalog recovery and caller retries.",
+        "implementation_obligation": "Save the new name before issuing registration; retain it through uncertain registration/open/cleanup errors. Retire failed new setup without deleting an existing append prefix. Capture the actual offset and preserve the same descriptor before switching to normal write rollback; resolve cleanup before reusing or sealing the writer. Track every preparation owner before its first append. Preserve failed preparations for retry, including across other requests. Explicit seal/close cleans abandoned preparation owners; retain the current cleanup identity on release errors and finish started cleanup before another request. Transfer only the completed request owner to its exact handoff; pack rotation must preserve preparation holds.",
+        "unproved": "Actual fresh-name allocation, guard placement, error dispatch, syscall/descriptor identity, offset capture and handoff are not mechanically refined. The generic preparing/capture functions are Verus-proved. Parent repair and complete-file/incomplete-write/ownership models are not mechanically composed; process crash recovery is excluded. holding::finish proves retention/clearing of the active cleanup descriptor, not the I/O response interpretation, pending-owner set or placement of handoff transfer."
+      }
+    },
+    "ENV-HANDOFF": {
+      "layer": "completed publication and caller request interleavings",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "After a failed response, callers can offer another ID, a different API with the same ID, or changed contents; they are not assumed to wait until the prior handoff completes. Successful abstract staging establishes its requested owner; failed stage/seal/consume/release may already have effects. Eventual storage stability, weak fairness and retry of the original request support conditional completion. Library return is not remote RPC acknowledgement.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentHandoff.tla"
+      ],
+      "evidence": [
+        "tests/test_publication_handoff.py",
+        "rust/finalization.rs",
+        "rust/store.rs",
+        "verification/protocol/tla/PublicationHandoff.tla",
+        "verification/protocol/probes/handoff_probe.py",
+        "verification/protocol/probes/handoff_extent_probe.rs",
+        "verification/protocol/tla/ProvisionalHold.tla",
+        "tests/test_provisional_holds.py"
+      ],
+      "review": {
+        "provided_by": "Caller request interleavings and catalog stage/seal/release responses; complete immutable reference closures and catalog serialization remain separate contracts.",
+        "implementation_obligation": "Bind the complete file/cache to API and submission ID before uncertain sync; keep it active across every staging/sealing/internal hold-release step. Reject other requests before creating their holds, check pending durability before returning a cache entry, and prevent seal from discarding an unreturned description. A formerly acknowledged reference need not acquire a new unresolved guard on replay.",
+        "unproved": "Actual caller identity/string matching, content hashing, guard placement and full Store/catalog dispatch are not mechanically refined. Generic handoff construction/admission/acknowledgement and API equality are Verus-proved. This finite model starts after data durability; complete pending-file, ownership, directory and process recovery models are not composed. Explicit abandonment/close, early holds before file completion and crashed writers still need separate recovery."
+      }
+    },
+    "ENV-CONSUMPTION": {
+      "layer": "staging release, immutable graph recipes and post-GC retries",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Reference identities name immutable direct dependency edges; successful manifest expansion returns all of them. A release response may fail after its complete catalog frame becomes durable, and peers may collect every unowned manifest before the original call retries or reopens. Other owners remain independent. Stable storage, fair scheduling and caller retry yield conditional completion only when a durable complete recipe survives.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentConsumption.tla"
+      ],
+      "evidence": [
+        "rust/consumption.rs",
+        "rust/gc.rs",
+        "tests/test_staging_consumption.py",
+        "verification/protocol/tla/StagingConsumption.tla",
+        "verification/protocol/probes/consumption_probe.py",
+        "verification/protocol/tla/SharedRecordWorkflow.tla",
+        "verification/protocol/probes/workflow_extent_probe.rs"
+      ],
+      "review": {
+        "provided_by": "Authenticated immutable manifests, catalog locking and complete-frame replay, plus caller retries and peer ownership/GC behavior.",
+        "implementation_obligation": "Traverse the whole requested graph, deduplicate by reference identity, validate every cached child has a definition, and persist exact direct edges in the same frame that releases staging. Restore the graph with owners on replay; discard both after an unconfirmed frame is lost. Never infer a consumed closure merely from an absent root owner.",
+        "unproved": "The actual covered, same_children and complete compatible graph-validation loops are Verus-proved under String key/library contracts; JSON/key syntax, graph key/manifest binding, canonical serialization, cache truthfulness, atomic frame/replay adaptation and full consume call placement are not mechanically refined. Model availability is per node, not shared physical pack. Pre-upgrade releases without stored edges cannot recover a graph after its manifests are collected. Metadata grows with unique references; compaction is not implemented."
+      }
+    },
+    "ENV-LOCAL-ACCESS": {
+      "layer": "process-local mutex and callback execution",
+      "status": "assumption_in_model",
+      "statement": "A successful local mutex attempt returns an exclusive token. try_lock returns without waiting: a held mutex reports busy; an otherwise available poisoned mutex reports poison. A synchronous fault callback may request writer access on its own thread, or wait for another caller that requests it. The outer publication retains its mutex until the callback returns.",
+      "sources": [
+        "verification/storage/tla/EnvironmentLocalAccess.tla"
+      ],
+      "evidence": [
+        "rust/access.rs",
+        "rust/python.rs",
+        "tests/test_writer_access.py",
+        "verification/storage/probes/writer_access_probe.py",
+        "verification/storage/tla/WriterAccess.tla"
+      ],
+      "review": {
+        "provided_by": "Rust standard-library mutex/token semantics, OS scheduling, and the synchronous Python callback/caller relationship.",
+        "implementation_obligation": "Check process identity before mutex access; use a nonblocking attempt for every accessor of the NativeStore writer. Reject busy/poisoned attempts without modifying or exposing the writer; preserve the exact acquired token on success.",
+        "unproved": "Verus proves the actual generic admit function for all supplied tokens and poison flags. std::sync::Mutex, try_lock result-to-token mapping, GIL/FFI, guard lifetimes, complete adapter call placement and arbitrary callback termination remain unproved. Catalog, coordinator and journal locks are separate boundaries; this change does not provide general callback reentrancy."
+      }
+    },
+    "ENV-COMMIT-CLEANUP": {
+      "layer": "queue acceptance, post-commit staging cleanup and recovery",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "WAL acceptance can outlive an error in later staging cleanup. A serialized catalog release may be durable despite an error response; fresh replay reports durable handoff receipts truthfully. Publishers may subsequently restage the same immutable reference, and peers may collect unowned manifests. Eventual stability, fair scheduling and invocation/recovery support conditional completion.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentCommitCleanup.tla"
+      ],
+      "evidence": [
+        "rust/coordinator.rs",
+        "rust/gc.rs",
+        "rust/consumption.rs",
+        "tests/test_commit_consumption.py",
+        "tests/test_commit_protocol.py",
+        "verification/protocol/tla/CommitCleanup.tla",
+        "verification/protocol/probes/commit_cleanup_probe.py"
+      ],
+      "review": {
+        "provided_by": "Persistent WAL/catalog prefix guarantees, fresh serialized catalog replay, truthful receipt lookup, caller retry/recovery, and independent publisher/reader interleavings.",
+        "implementation_obligation": "Put the unique handoff identity in the accepting WAL frame. Recover pending identities before admitting newer operations or cached results. Persist the release, dependency recipes and completion receipt in one catalog frame; rebuild every receipt index if unconfirmed state is lost. Confirm the receipt before dropping pending work, and never apply an already completed handoff to later staging. Preserve protecting queue owners until cleanup completes.",
+        "unproved": "Verus proves the actual generic pending pop and receipt insertion loop, under supplied confirmation and String key laws. Marker hashing, root extraction, call placement, complete-frame atomicity/replay, catalog locks, actual I/O and full Coordinator refinement are not proved. The finite model starts with durable retained data and abstracts one immutable root; it does not compose arbitrary dependency graphs, simultaneous queues or pre-WAL failures. Unmarked legacy history cannot distinguish unfinished cleanup from subsequent staging. WAL/receipt histories have no compaction."
+      }
+    },
+    "ENV-TYPED-DECODE": {
+      "layer": "input/runtime",
+      "status": "direct_unproved_premise",
+      "statement": "The layout matcher receives the authenticated envelope and caller descriptor fields faithfully decoded. Payload allocation may return failure; metadata allocation, process aborts and numeric memory guarantees are outside the model.",
+      "sources": [
+        "verification/storage/tla/EnvironmentTyped.tla"
+      ],
+      "evidence": [
+        "tests/test_tensor_preflight.py",
+        "verification/measurements/20261024-typed-preflight.json",
+        "verification/storage/probes/typed_preflight_probe.py"
+      ],
+      "review": {
+        "provided_by": "straw Python/PyO3/JSON adapters and authenticated frame/index decoding provide actual and expected layouts; the runtime provides allocation outcomes.",
+        "implementation_obligation": "Decode dimensions/length without coercion, validate local tensor shape/product, bind dtype/shape/length before payload allocation/read, and check empty typed slices too.",
+        "unproved": "Python arithmetic, JSON/FFI correspondence, metadata allocations, placement of the matcher in the full I/O adapter and compiled code conformance are not proved."
+      }
+    },
+    "ENV-LOOKUP": {
+      "layer": "read visibility",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "After stable namespace resolution, a returning read-only open either acquires a descriptor or reports NotFound/another I/O error. NotFound does not establish permanent absence. NameBy is a conditional local lookup-attempt bound within each outer data attempt, not a measured time limit. Other errors may occur at any attempt. The descriptor binds the protected immutable reference; name resolution, blocking syscalls and returned error fidelity remain adapter assumptions.",
+      "sources": [
+        "verification/storage/tla/EnvironmentLookup.tla"
+      ],
+      "evidence": [
+        "verification/storage/tla/ReadLookup.tla",
+        "rust/store.rs",
+        "verification/storage/probes/read_lookup_probe.py",
+        "verification/storage/probes/read_lookup_fault.c"
+      ],
+      "review": {
+        "provided_by": "Filesystem/client read-only open responses, stable private names and caller protection of the referenced immutable publication.",
+        "implementation_obligation": "Retry only NotFound within the independent name-lookup budget, propagate other errors, close failed data views before fresh outer retries, and authenticate data before returning success.",
+        "unproved": "No natural name-visibility attempt bound, syscall wall-clock bound, or complete namespace/open/error/descriptor refinement has been proved. Injected errors are controlled behavior, not evidence of naturally occurring failures."
+      }
+    },
+    "ENV-OFFLINE": {
+      "layer": "ownership/peers",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Offline cleanup is permitted only for a stopped single-queue namespace without catalog or queue-namespace markers. Advisory stat may be stale. A fresh read-only open returning NotFound truthfully establishes marker absence; other errors do not. Shared owners require a catalog or queues marker. Markers/owners may appear between report creation and cleanup, but all participants and namespace bindings are stable throughout the final stopped-run check and deletion. The root journal and validated immutable closure enumerate every historically accepted root pack. Failed unlink/sync may already remove unowned data.",
+      "sources": [
+        "verification/offline/tla/EnvironmentOffline.tla"
+      ],
+      "evidence": [
+        "verification/offline/tla/OfflineCleanup.tla",
+        "src/straw/inspect.py",
+        "tests/test_offline_inspection.py",
+        "verification/offline/probes/offline_guard_probe.py",
+        "verification/offline/probes/offline_guard_fault.c",
+        "verification/offline/tla/OfflineRoots.tla",
+        "tests/test_offline_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Caller-established participant quiescence, stable namespace and truthful fresh-open absence, complete root WAL and authenticated dependency traversal.",
+        "implementation_obligation": "Fresh-open both shared-storage markers; refuse present or uncertain markers. Recheck before deletion, require stopped-run assertion and an unchanged error-free inspection, retain complete historical root closure and propagate deletion/barrier failures. Include run identity and journal files plus their resolution bindings in the retained root set; preserve full data closure with a heap frontier and validate each unique accepted root before deletion.",
+        "unproved": "Actual quiescence/fencing, fresh-open NotFound truth, full Python/OS/JSON/graph refinement and recovery of partial offline deletion are not proved. The guard does not repair previously deleted owned files."
+      }
+    },
+    "ENV-OFFLINE-BINDINGS": {
+      "layer": "ownership/namespace",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A successful retained-reference trace includes every POSIX path binding used in resolution, including intermediate symbolic links and directories traversed before ..; final in-pool identity alone is insufficient. The namespace is stable against external rebinding during inspection and cleanup, but algorithm unlink actions are explicitly checked. readlink EINVAL identifies a non-symlink truthfully; other errors yield no deletion authorization. Successful cached traces are inspection-local. The required reference set includes run.json and control/journal.log, not only data manifests.",
+      "sources": [
+        "verification/offline/tla/EnvironmentBindings.tla"
+      ],
+      "evidence": [
+        "verification/offline/tla/OfflineAliases.tla",
+        "src/straw/inspect.py",
+        "tests/test_offline_aliases.py",
+        "verification/offline/probes/offline_alias_probe.py",
+        "verification/offline/tla/OfflineRoots.tla",
+        "tests/test_offline_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Stable POSIX namespace, truthful readlink/path resolution, and the Python reference-binding traversal adapter.",
+        "implementation_obligation": "Protect physical files and all traversed bindings for the complete accepted closure; filter sealed/pack and partial candidates alike, reject unknown identities and unlink lexical candidate names. Cache only successful resolutions/traces within one inspection.",
+        "unproved": "Python path traversal, readlink error classification, graph expansion, report recheck and OS correspondence are not mechanically refined. The finite model supplies traces, not a full POSIX resolver. Hard-link/bind-mount equivalence and external rebinding are outside the contract; caller quiescence is not fencing."
+      }
+    },
+    "ENV-WAL-PREFIX": {
+      "layer": "durability",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Serialized appends preserve every successfully synced prefix. A crash or failed call may preserve any longer prefix, including part of a frame; a failed sync may have persisted its entire effect. Three abstract units represent header, payload and trailer. Complete-frame authentication/sequence validation is truthful.",
+      "sources": [
+        "verification/wal/tla/EnvironmentWal.tla"
+      ],
+      "evidence": [
+        "verification/wal/tla/WalRecovery.tla",
+        "rust/wal.rs",
+        "rust/journal.rs",
+        "rust/gc.rs",
+        "tests/test_wal_recovery.py",
+        "verification/wal/checks/crash_campaign.py",
+        "verification/wal/tla/CatalogTransaction.tla"
+      ],
+      "review": {
+        "provided_by": "Filesystem prefix persistence and serialized append ownership; authentication is supplied by the runtime decoder and hash contract.",
+        "implementation_obligation": "Finish all frame parts before confirming, poison uncertain appends, validate and truncate only an incomplete tail, sync recovered state and seek to its exact boundary before reuse.",
+        "unproved": "The three-unit model does not prove byte decoding, syscall/descriptor correspondence, hash correctness, real lock serialization or storage power-loss durability."
+      }
+    },
+    "ENV-CROSS-LOG": {
+      "layer": "durability",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Queue and catalog have independent current and durable complete-frame prefixes. After a crash each can retain its prior durable state or its one complete uncertain frame; partial frames retain the prior logical state. Sync success is truthful; failures may already persist effects. The entry payload closure is immutable, sealed and durably staged. External reader/checkpoint/peer ownership remains active across the coordinator crash until explicitly released. Global reclamation additionally requires the application holders to finish and release; this is independent of I/O stability and scheduling. Permanent holders remain protected; per-pack progress requires permanent absence of every owner. Catalog and queue crash choices now use EnvWalProjectedStates from EnvironmentWal; the exact single-uncertain-frame state set and independent Cartesian choices have an unbounded Verus projection proof.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentCrossLog.tla",
+        "verification/wal/tla/EnvironmentWal.tla"
+      ],
+      "evidence": [
+        "verification/protocol/tla/DurableHandoff.tla",
+        "verification/wal/tla/WalRecovery.tla",
+        "rust/coordinator.rs",
+        "rust/gc.rs",
+        "rust/journal.rs",
+        "tests/test_commit_consumption.py",
+        "tests/test_gc_receipts.py",
+        "tests/test_durable_handoff.py",
+        "verification/wal/verus/prefix_projection.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem barriers/prefix persistence and truthful framing/authentication, publication setup, serialized catalog access, and externally fenced coordinator ownership. Application completion/release is a separate progress premise, not supplied by the filesystem.",
+        "implementation_obligation": "Make retain durable before queue acceptance; persist handoff intent/receipt, sync recovered states, retire queue references before prune, fence late retain with durable tombstones and persist deletion before receipt.",
+        "unproved": "The projection from bytes and actual syscalls to complete catalog/queue states is not mechanically proved. The model starts after durable staged publication and omits crashed-writer recovery, arbitrary request histories, new restaging generations, JSON and real lock/fencing internals."
+      }
+    },
+    "ENV-REPLAY-IO": {
+      "layer": "durability",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "The replay device binds one descriptor identity throughout the attempt. Successful nonempty reads return the exact snapshot slice and advance the logical cursor; empty reads leave the cursor unchanged and may succeed past EOF; successful seek preserves the snapshot and establishes the requested cursor. Buffer discard preserves bytes/identity. Successful truncate yields the requested prefix; successful sync makes current contents durable. Failed read/seek/truncate/sync may leave arbitrary bytes/durability and an uncertain cursor, including a storage rollback; no success is inferred from Err. SHA digests bind both supplied byte spans.",
+      "sources": [
+        "rust/wal_device.rs",
+        "rust/wal_source.rs"
+      ],
+      "evidence": [
+        "rust/wal_recovery.rs",
+        "rust/wal_file.rs",
+        "rust/journal.rs",
+        "rust/gc.rs",
+        "tests/test_wal_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem byte I/O, standard buffered-reader semantics and SHA primitives; the concrete adapter must faithfully bind these operations to the borrowed descriptor.",
+        "implementation_obligation": "Establish the device View for the opened log and its snapshot, discard the actual read buffer, operate on the same descriptor identity, report uncertain outcomes faithfully and hash exactly the supplied spans. Invalidate the cached snapshot before fallible effects and retain uncertainty after errors/unwinding; do not reuse size/cursor after failed read, truncate, sync or seek.",
+        "unproved": "Actual wal_source::Source now implements Device under ENV-FILE-PRIMITIVES: construction establishes validity; complete input ownership, buffered/plain transitions, same identity, conditional size validity, error quarantine and consumed barriers are proved for returning calls. The shared byte driver and actual catalog/queue recovery propagate the device validity premise and preserve it on every returned result. Native File/BufReader/Take/SHA/callback wrappers, metadata freshness, multi-read snapshot consistency, outer opened-log/lock binding and unwind behavior remain separate; native regressions cover replacement names, failed barriers, partial reads, failed seek, empty reads past EOF and a caught barrier unwind."
+      }
+    },
+    "ENV-REPLAY-APPLY": {
+      "layer": "durability",
+      "status": "direct_unproved_premise",
+      "statement": "A successful replay target application extends its abstract ordered raw-record history by exactly the supplied payload and leaves no partially applied record. Every return preserves its application context: catalog confirmation floor, run and namespace interpretation, or the queue context. Errors may leave partially changed business indexes and cannot authorize continued replay or reuse as confirmed state.",
+      "sources": [
+        "rust/wal_device.rs",
+        "rust/catalog_target.rs",
+        "rust/catalog_frame.rs",
+        "rust/queue_history.rs",
+        "rust/journal_state.rs",
+        "verification/wal/verus/journal_equivalence.rs",
+        "rust/queue_application.rs"
+      ],
+      "evidence": [
+        "rust/wal_recovery.rs",
+        "rust/wal_file.rs",
+        "rust/journal.rs",
+        "rust/gc.rs",
+        "rust/catalog_state.rs",
+        "rust/catalog_json.rs",
+        "rust/catalog_log.rs",
+        "rust/catalog_event.rs",
+        "rust/catalog_decode.rs",
+        "rust/json_update.rs",
+        "rust/queue_metadata.rs"
+      ],
+      "review": {
+        "provided_by": "straw journal/catalog decoding and business-state application. This is an implementation obligation, not an external filesystem guarantee.",
+        "implementation_obligation": "Define the concrete business-state View and prove JSON validation/application, all derived indexes, cursor/sequence updates and rebuild paths implement the ordered history contract. Queue business application now borrows the exact State.transactions decoded by recovery, skips the identity header, and applies every remaining event in order; exact partial prefixes and error indexes are proved. The byte-prefix composition uses the same successful decoded Values.",
+        "unproved": "Actual catalog_frame/target decoding and raw business folds, append/history binding and independent six-index replay equivalence are proved under serde, String identity and fixed Resolver/KeySet contracts. Native namespace, closure-cache context, set builders, Source/Appender snapshot and full lock/open/run binding remain open. Actual queue_history now composes preparation, target admission, all business branches, receipts and arbitrary finite event/transaction folds. State::apply_business binds the actual decoded vector to that fold, and queue_application::restore returns only a fresh complete business result while preserving quarantine on failure. Derived scheduling/usage/deadline caches, recovered-consumption identities, native context and public API/guard conformance, callbacks and cross-log/GC composition remain separate. The callback trace contract is ENV-QUEUE-APPLICATION-HOOKS. Parser acceptance, full numeric observation equivalence, termination and arbitrary unwind rollback are not asserted."
+      }
+    },
+    "ENV-JSON-LIBRARY": {
+      "layer": "Rust JSON library",
+      "status": "trusted_contract",
+      "statement": "The locked serde_json library implements its Value accessors, Clone and finite Map new/iteration/get/get_mut/insert/remove faithfully; Map::new is empty and Number::from(u64) preserves the exact unsigned value. Value exposes its actual enum variants. The logical object entry sequence is the actual iteration order; primitive contracts do not assume straw decoding or business replay. Borrowed str Index::index_into performs the same object lookup used by Value indexing, returning None for absent keys or nonobjects; the actual implementation delegates to Map::get. Mutable str Index::index_into_mut selects an existing object field and frames all other fields. Native Value equality is modeled separately from representation/content identity; equality implies identical finite-depth observations under the pinned sorted-map configuration. Map::retain visits every original entry once, supplies its original key/value to the predicate, retains precisely true decisions with the callback-final value, and introduces no new keys. This assumes normal callback/library return, not panic rollback or visitation order. The verified straw callback has immutable captures, preserves each value and makes its decision using native worker equality. The actual Map iteration sequence contains at most one entry per string character key; map_entries_unique states this foreign representation law. It does not assume preservation of any straw root or event frame.",
+      "sources": [
+        "verification/common/verus/serde_json.rs",
+        "rust/catalog_json.rs",
+        "Cargo.lock",
+        "rust/request.rs",
+        "verification/protocol/verus/request_history.rs",
+        "rust/json_update.rs",
+        "rust/queue_metadata.rs",
+        "rust/gc_mark.rs",
+        "rust/queue_event.rs",
+        "rust/queue_task.rs",
+        "rust/queue_reader.rs",
+        "rust/queue_receipt.rs",
+        "rust/queue_state.rs",
+        "rust/queue_transition.rs",
+        "verification/protocol/verus/queue_transition_roots.rs",
+        "rust/queue_admin.rs",
+        "rust/queue_replay.rs",
+        "rust/queue_history.rs",
+        "rust/queue_roots.rs",
+        "rust/queue_gc.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "tests/test_catalog_encoding.py",
+        "tests/test_request_replay.py",
+        "tests/test_metadata_recovery.py",
+        "tests/test_filesystem_queue.py",
+        "tests/test_lease_selection.py",
+        "tests/test_task_recovery.py",
+        "tests/test_online_gc.py"
+      ],
+      "review": {
+        "provided_by": "serde_json Value::{as_u64,as_bool,is_null,as_str,as_array,as_object,clone}, Map::{new,iter,get,get_mut,insert,remove}, Number::from(u64), borrowed str Index::{index_into,index_into_mut}, Value::eq and Iter::next, built from Cargo.lock with the pinned Verus compiler.",
+        "implementation_obligation": "Execute and verify actual field lookup, complete traversals, wrong-type rejection, typed output construction and request receipt lookup/update. Preserve response content and digest text, distinguish cached null from absence and bind each request to its key. Full caller admission, hashing, authorization and durable business replay are separate straw obligations. Actual metadata paths must update only their leaf, leave invalid paths unchanged, apply edits in order and install the matching receipt only after all business edits. A later edit failure must retain an accurately described prefix; the caller must quarantine partial business state. Actual gc_mark constructs only a resolved-path deleted array and path_encoding=1; it proves the resulting decoded operations mark exactly the scanned candidates. queue_event::prepare must return exactly the complete ordered task-ID list consumed by scheduling-index invalidation; duplicate IDs remain in their original positions and malformed affected fields are rejected before mutations. Actual queue_task bodies must build complete task records; reject missing update targets; increment failures with checked arithmetic; preserve unrelated fields; copy leases, failure evidence and continuation fields exactly; and distinguish progress from yielding. Full caller event admission, target dispatch, reader roots, counters and scheduling-cache consistency remain straw obligations. Actual queue_reader must preserve all previous roots when extending progress, include the new input, preserve peer attempts and describe the exact ordered ReaderDone prefix on errors. Actual queue_receipt must register the supplied receipt/lease before appending the receipt to commits, preserve the precise partial prefix on invalid state and update only the selected producer continuation. Actual queue_state must select the named task inside the tasks table, dispatch the corresponding leaf transition, preserve every peer task and non-task root field, reject missing targets unchanged and execute batch IDs in order with an exact successful prefix before errors. Actual queue_transition must bind task/reader/receipt operations in production order, retaining exact completed effects on later errors. Failed releases only the current reader before the task retry; expiration and cancellation preserve readers. Progress extends roots before task updates, yielding releases its reader first, and completion releases then marks the task before recording submission/commit receipts. queue_transition_roots composes the verified snapshot/reader/task effects: every pre-existing root remains at its prior position, the new input is protected and every peer reader is unchanged, under the separately declared String content identity premise. Actual queue_admin must assign consecutive bounded scheduling orders to submitted tasks, preserve exact batch prefixes on error, advance producer continuation only after the task batch, bind epoch assignment before ordered revocation, and bind reader completion and request receipts to the correct root table. Yield allocates one order only on success; ordinary progress allocates none. Native submission/yield admission must check capacity after cached-response lookup and before retaining or appending. Actual reader retirement must prove its callback and event.worker_id/readers binding, preserve every nonmatching reader and all other roots, and retain existing malformed-history null lookup semantics. queue_replay must dispatch the matched event type to the correct parameters, iterate lease/failure batches in input order, preserve the failing item's partial effects, maintain epoch/order/sealed frames, reject unknown kinds and finalize receipts exactly once. Native target prevalidation, deadline callback and derived indexes remain separate obligations. Actual queue_history must establish target admission from the complete prepared list, call body/refresh/receipt in order, preserve exact transaction and recovery error prefixes, and bind replay to journal_state::State.transactions. Its initial constructor must establish all empty business roots. Cache and recovered-consumption callbacks receive only immutable business inputs and separate mutable cache/bookkeeping state; no correctness of their contents is assumed by the business fold.",
+        "unproved": "The twenty-one audited serde primitive contracts, four opaque library types two named Value laws and one Map key-uniqueness law remain trusted. The map_pairs_unfold lemma is checked from its definition, not admitted. Clone preserves content and finite observations rather than representation identity; native Value equality is not canonical-byte equality, and numeric observations expose only as_u64. Map::retain is reviewed for the actual immutable-capture, entry-preserving worker predicate on normal return, not arbitrary mutable captures or unwinding. Actual queue_history now composes preparation, target admission, all body kinds, final receipts, finite event/transaction folds and exact partial errors. journal_state::State::apply_business binds the actual decoded vector and journal_equivalence::physical_prefix_business connects successful byte-prefix recovery to the ordered business fold. This uses the actual successful parser Values, not an assertion that independent reparsing preserves full numeric representation. Native scheduling/usage/deadline cache correctness, recovered-consumption identities, run/fencing/File/lock/context conformance, outer quarantine, admission/freshness, root extraction and cross-log/GC ownership remain straw obligations. Library internals, compiler, allocation and callback termination/unwind remain outside the normal-return proof."
+      }
+    },
+    "ENV-APPEND-IO": {
+      "layer": "durability",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A Writer attempt binds one unbuffered log descriptor. Successful inspect reports the exact byte length and cursor without changing contents. Successful write appends the supplied span at EOF and advances the cursor; successful sync preserves bytes/cursor and establishes their durability. Failed inspect/write/sync may have side effects or storage rollback; identity is preserved and an error never certifies synchronization. SHA digests cover the exact supplied spans.",
+      "sources": [
+        "rust/wal_device.rs",
+        "rust/gc_mark.rs",
+        "rust/wal_sink.rs"
+      ],
+      "evidence": [
+        "rust/wal_append.rs",
+        "rust/catalog_log.rs",
+        "rust/wal_file.rs",
+        "rust/journal.rs",
+        "rust/gc.rs",
+        "tests/test_wal_recovery.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem metadata, descriptor position, write_all and sync semantics, plus SHA primitives. The native Appender and its fault callbacks must preserve the interface correspondence.",
+        "implementation_obligation": "Borrow the intended descriptor, report exact length/cursor, use the supplied spans, preserve uncertainty after failures/unwinds and call real synchronization before reporting its success. Bind the descriptor to the locked/recovered log. Native callbacks must not fake successful effects.",
+        "unproved": "Actual wal_sink::Appender proves Writer conformance under ENV-FILE-PRIMITIVES: exact length/cursor inspection, same-file writes, queue/catalog barrier and hook dispatch, and faithful error propagation. Shared append and catalog confirmation compose above it. Native primitive/callback wrappers, successful metadata freshness, log/lock identity and complete outer Journal/catalog call placement remain unproved; physical syscall semantics remain a lower contract."
+      }
+    },
+    "ENV-COLLECTION-ITERATOR": {
+      "layer": "Rust collections library",
+      "status": "trusted_contract",
+      "statement": "Standard HashMap and HashSet consuming iterators enumerate every existing entry once, in unspecified order; next removes one entry or returns None only when empty. The contracts depend on the existing key/hasher model. Ownership is transferred without cloning keys or values. The separate standard mem::replace contract returns the old value and installs the supplied replacement.",
+      "sources": [
+        "verification/common/verus/collections.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/catalog_decode.rs",
+        "rust/staging_consumption.rs"
+      ],
+      "review": {
+        "provided_by": "std::collections::{HashMap,HashSet}::into_iter, their IntoIter::next methods, and std::mem::replace.",
+        "implementation_obligation": "Move all entries into operations, retain their values and preserve complete enumeration; verify the actual loop.",
+        "unproved": "Four collection iterator method specifications, mem::replace and two opaque iterator types are trusted. No straw traversal, event builder or decoder body is omitted."
+      }
+    },
+    "ENV-CATALOG-RESOLVER": {
+      "layer": "ownership/namespace",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A decoder resolver has a fixed namespace identity map during construction and replay. Successful legacy resolution returns that map entry; successful normalized resolution returns the supplied identity unchanged. Errors may occur. Cache mutation and reset preserve this abstract namespace; incremental cached history must use the same interpretation. ResolverModel::valid explicitly carries cache/context prerequisites. The actual catalog_namespace::Adapter constructor, reset and Resolver trait implementation are verified; decoder, raw Target, append and GC consumers preserve this validity without a whole-chain no_unwind premise.",
+      "sources": [
+        "rust/catalog_decode.rs",
+        "rust/gc_mark.rs",
+        "rust/catalog_namespace.rs"
+      ],
+      "evidence": [
+        "rust/gc.rs",
+        "rust/store.rs",
+        "tests/test_path_identity.py",
+        "tests/test_catalog_encoding.py"
+      ],
+      "review": {
+        "provided_by": "The native NamespaceResolver, path_identity/cache and relative_storage_path, under ENV-NAMESPACE.",
+        "implementation_obligation": "Bind the correct pool, namespace root and encoding; reject escaping paths and maintain cache consistency. Pass each field name to the resolver without substitution. Preserve the namespace interpretation across reset and incremental replay; do not treat changing legacy aliases as an unchanged namespace.",
+        "unproved": "The actual generic Adapter trait implementation and validity propagation are now verified. Native NamespaceSource::legacy-to-Config parameter binding, root/borrowed Parts construction, standard path/filesystem primitive bindings and establishment of initial or reused cache validity under the catalog lock remain separate obligations. Marker truthfulness and physical namespace stability are still caller/environment obligations."
+      }
+    },
+    "ENV-SET-BUILDER": {
+      "layer": "Rust collections library",
+      "status": "trusted_contract",
+      "statement": "The standard BTreeSet::from_iter result contains exactly the iterator elements under obeys_cmp. The separately audited btree_bulk library law connects pinned vstd FromIteratorSpec::from_iter_ensures to that set meaning. The actual NativeKeySet passes the complete supplied vector into its consuming iterator, calls this same standard bulk implementation and returns the result; that adapter body is verified.",
+      "sources": [
+        "verification/common/verus/collections.rs",
+        "rust/catalog_namespace.rs",
+        "rust/catalog_decode.rs"
+      ],
+      "evidence": [
+        "rust/gc.rs",
+        "verification/runners/check_verus.py"
+      ],
+      "review": {
+        "provided_by": "Standard BTreeSet::from_iter semantics and the explicit ordering contract, represented by one narrowly audited external library law.",
+        "implementation_obligation": "Pass the complete resolved vector to standard bulk construction and return that set. The actual NativeKeySet::from_values body is now verified; callers must establish String ordering and the correctness/completeness of their input vector.",
+        "unproved": "The standard library implementation, compiler and ordering premise remain trusted. The one-call straw adapter is no longer an unproved whole-function premise; native namespace/context and caller input correspondence remain independent obligations."
+      }
+    },
+    "ENV-COMMIT-EFFECTS": {
+      "layer": "ownership/commit execution",
+      "status": "direct_unproved_premise",
+      "statement": "Each effect binds the same immutable transaction. Retain success means the complete required data closure has durable protection; append success means this exact queue acceptance is durable; an uncertain accepted append is quarantined. Apply changes only the modeled memory state, preserving an armed guard on every return. Successful apply may be confirmed, and staging cleanup succeeds only after durable acceptance and completed memory application. Errors may already have effects.",
+      "sources": [
+        "rust/protocol.rs"
+      ],
+      "evidence": [
+        "rust/coordinator.rs",
+        "rust/journal.rs",
+        "rust/gc.rs",
+        "tests/native.rs",
+        "tests/test_durable_handoff.py"
+      ],
+      "review": {
+        "provided_by": "Native CommitIo and its catalog, journal, JSON application and cleanup implementations. This is a straw implementation obligation, not an external filesystem guarantee.",
+        "implementation_obligation": "Bind the model request and complete root closure to actual event bytes and namespace; map native durable results truthfully, preserve retained protection, write the actual journal quarantine field before callbacks, and establish every effect contract from lower implementations.",
+        "unproved": "The actual generic execute_commit body now verifies effect dispatch/order, success conditions, error propagation and guard placement under this interface. Native CommitIo conformance, complete root extraction, lower catalog/Journal/JSON semantics and cross-log replay composition remain unproved. Verus checks normal Result executions; it does not verify Rust unwind semantics. Native caught-unwind regressions and CommitApplication separately cover the concrete interrupted-application window."
+      }
+    },
+    "ENV-COMMIT-APPLICATION": {
+      "layer": "ownership/commit execution",
+      "status": "explicit_model",
+      "statement": "Application callbacks can succeed, return errors, or unwind to a caller that catches the panic. An unwind bypasses Result error handling; prior durable acceptance and partial memory effects are not rolled back. A later public call may attempt collection.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentApplication.tla"
+      ],
+      "evidence": [
+        "verification/protocol/tla/CommitApplication.tla",
+        "tests/native.rs",
+        "tests/test_commit_protocol.py"
+      ],
+      "review": {
+        "provided_by": "Rust callback/Result/unwind behavior and the caller that decides to catch a panic and make another API call.",
+        "implementation_obligation": "Arm journal quarantine before application/callbacks, clear it only after complete success, reject further effects before cleanup/GC, and rebuild from the durable WAL before resuming. Retirement must be durable before removing its data owner.",
+        "unproved": "The finite model uses one accepted reference and one later retirement; successful WAL, root extraction, cleanup and per-pack deletion are abstracted. Full Rust exception semantics, distributed recovery and multi-request/reader/checkpoint composition are not proved by this model. No liveness or failure-stop assumption is used."
+      }
+    },
+    "ENV-TRAINING-CHECKPOINT": {
+      "layer": "application recovery",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "The application selects a durably committed model/optimizer checkpoint and its matching consumer position. It independently retains results processed after that checkpoint, including later arrivals, until a newer matching checkpoint commits. Advancing a queue processing cursor does not commit model/optimizer state.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentTraining.tla"
+      ],
+      "evidence": [
+        "verification/protocol/tla/TrainingResume.tla",
+        "tests/test_resume_workflow.py",
+        "docs/APPLICATIONS.md",
+        "docs/USAGE.md"
+      ],
+      "review": {
+        "provided_by": "The training application, checkpoint selection/commit logic and explicit replay data owners. straw does not choose the latest external model checkpoint or infer these dependencies from a cursor.",
+        "implementation_obligation": "Retain any post-checkpoint replay inputs before acknowledging them as processed; persist coherent model/optimizer/RNG and consumer state; select one committed manifest; restore its matching state before resuming; release old replay owners only after replacement protection is durable.",
+        "unproved": "The finite model uses ordered scalar positions with one input per optimizer step; it does not verify a real trainer, batching/sparse progress, numeric model updates, distributed optimizer state or external checkpoint-file publication. The integration tests exercise actual queue/store restart and GC with a mock optimizer, including explicit rejection after missing replay protection. Native API/JSON/GC refinement remains separate."
+      }
+    },
+    "ENV-GC-BATCH-EFFECTS": {
+      "layer": "physical reclamation",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A deletion batch binds immutable target indices to durable tombstones and stable parent-directory keys. Unlink success, including confirmed NotFound, establishes current absence and returns the exact parent; errors may have side effects or lose transient absence. Successful parent synchronization establishes durable absence for every absent target under that parent. Already durable deletions are never undone. Receipt append affects only this batch and may persist receipts even on error. Parent-key Ord agrees with logical equality.",
+      "sources": [
+        "rust/gc_batch.rs",
+        "rust/gc_mark.rs",
+        "rust/gc_receipt.rs",
+        "rust/gc_io.rs",
+        "rust/directory_io.rs",
+        "rust/gc_collection.rs"
+      ],
+      "evidence": [
+        "rust/gc.rs",
+        "rust/catalog_log.rs",
+        "tests/test_gc_batch.py",
+        "tests/test_gc_receipts.py",
+        "tests/test_gc_missing_parent.py",
+        "verification/gc/tla/GCBatchDeletion.tla",
+        "verification/gc/tla/GCReceipt.tla",
+        "verification/measurements/20261026-gc-collection.json"
+      ],
+      "review": {
+        "provided_by": "Filesystem unlink/NotFound/directory barrier behavior, standard parent-key ordering, and straw native BatchIo binding to marked targets, repaired directories and catalog receipt append.",
+        "implementation_obligation": "Bind every index to its actual durable tombstone and pack identity; map successful unlink and parent repair/sync to these effects, preserve directory/namespace identity and translate actual catalog receipt outcomes. The driver itself must cover all parents, including absent names, before invoking receipt.",
+        "unproved": "Actual gc_collection::Batch and Repair now derive the indexed target snapshot, stable context, shared parent barriers, ordered ancestor repair and exact durable catalog receipt from ENV-GC-NAMED-PRIMITIVES plus Writer/Resolver/library contracts. The actual gc_io and directory_io bodies establish error dispatch and complete barrier execution; successful receipts require durable absence for all original targets. Native path/syscall and canonical-ancestor correspondence, the refreshed lock/descriptor entry context, logical root/dependency completeness, complete native append binding and conditional eventual discovery/mark/retry remain separate obligations. The actual Batch::run additionally composes durable mark, the full pending snapshot, deletion/barriers and receipt with exact success and failure prefixes. The outer coordinator/lock/root provenance and conditional liveness obligations remain open."
+      }
+    },
+    "ENV-JSON-PARSE": {
+      "layer": "wire decoding",
+      "status": "trusted_contract",
+      "statement": "Successful serde_json::from_slice returns a value related to the exact input bytes by the library deserialization relation. The generic contract deliberately does not assert deterministic custom Deserialize implementations or successful acceptance. straw separately checks nonempty event arrays and string event types and preserves exact record order.",
+      "review": {
+        "provided_by": "The pinned serde_json and serde libraries supply parsing and their Deserialize interface; their internal parsers are trusted, not Verus verified.",
+        "implementation_obligation": "straw must pass the actual authenticated frame payload, validate the returned event structure, append it once in order, reset tentative recovery state before retry and confirm matching recovery boundaries before new appends.",
+        "unproved": "JSON grammar/parser correctness and coordinator business-event interpretation and complete native File/lock refinement remain separate. The generic parsing relation provides no valid-input acceptance theorem. Actual catalog run binding and raw-to-typed replay meaning are proved under the parsing relation and namespace/set-builder contracts; actual append serialization and input-field/history binding use the separate ENV-JSON-ENCODE law."
+      },
+      "sources": [
+        "verification/common/verus/serde_json.rs",
+        "rust/journal_recovery.rs",
+        "rust/journal_state.rs",
+        "rust/catalog_frame.rs"
+      ],
+      "evidence": [
+        "rust/journal.rs",
+        "tests/test_journal_contract.py",
+        "tests/test_wal_recovery.py"
+      ]
+    },
+    "ENV-REQUEST-REPLAY": {
+      "layer": "protocol/request recovery",
+      "status": "explicit_model",
+      "statement": "Callers may retry a stable request ID/content, conflict with its content, lose a reply and reopen repeatedly. Application release and GC may remove previously accepted request data while the durable receipt remains. A replay response must not require those old files or recreate their owners. The finite RequestReplay model abstracts the lower acceptance append/sync/apply into one action; it is not a replacement for the byte WAL or cross-log environment.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentRequest.tla"
+      ],
+      "evidence": [
+        "verification/protocol/tla/RequestReplay.tla",
+        "rust/request.rs",
+        "tests/test_request_replay.py"
+      ],
+      "review": {
+        "provided_by": "Caller request identities, application lifetime and storage observations; durable receipt reconstruction and early replay checks are straw obligations.",
+        "implementation_obligation": "Rebuild request receipts from the accepted WAL, distinguish a cached null response from absence, reject conflicting content and resolve a recorded request before dereferencing its retired data. Check consumer authorization independently.",
+        "unproved": "Actual request key serialization/content hashing, full Coordinator replay/dispatch, atomic lower acceptance and composition with all ownership/catalog failure states remain unproved. The actual receipt lookup/update functions are Verus checked under serde library primitives; finite RequestReplay explores multiple IDs and repeated crash/recovery but has no system liveness theorem."
+      }
+    },
+    "ENV-JSON-ENCODE": {
+      "layer": "wire decoding",
+      "status": "trusted_contract",
+      "statement": "Successful serde_json::to_vec returns bytes related to its exact input by the serialization relation. Only serde_json::Value has the separately audited relation law that its encoded JSON has the same deserialized meaning, independent of allocation/layout. The built dependency must enable float_roundtrip; arbitrary custom Serialize/Deserialize implementations have no round-trip law or acceptance guarantee.",
+      "sources": [
+        "verification/common/verus/serde_json.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust/catalog_append.rs",
+        "rust/journal_append.rs",
+        "rust/gc_mark.rs",
+        "rust/gc_receipt.rs"
+      ],
+      "evidence": [
+        "rust/catalog_append.rs",
+        "tests/native.rs",
+        "tests/test_json_roundtrip.py",
+        "verification/runners/check_verus.py",
+        "rust/journal_append.rs",
+        "verification/wal/verus/journal_equivalence.rs"
+      ],
+      "review": {
+        "provided_by": "The pinned serde_json serializer, precise floating-point parser and Value representation; these external library internals and their narrowly scoped value_encoding law are trusted, not verified straw code.",
+        "implementation_obligation": "Preserve every business field while binding the supplied run, decode those same fields, serialize that exact Value and pass its exact bytes and operations to append. Keep interpreted history through initialization, successful confirmation and failed/uncertain appends. Retain native namespace, descriptor and lock obligations separately. Actual queue journal_append now validates the event list, serializes that same Value and passes those exact bytes to the verified State/Writer append, preserving error precedence and quarantine.",
+        "unproved": "Library grammar/number implementation, acceptance/depth/resource limits and compiler correctness remain trusted or outside scope. This law does not assume whole straw decoding, native File/namespace conformance or complete coordinator/GC composition. Existing persisted numeric rounding cannot be reversed; requests whose old canonical hash reflected rounding can differ after the parser correction. Queue frame/recovery equivalence preserves finite-depth observations only; arbitrary finite history results require the same recovered raw sequence. Physical retained-prefix selection, full queue business replay and native caller/File/run binding remain separate."
+      }
+    },
+    "ENV-JSON-VALUE-CONSISTENCY": {
+      "layer": "Rust JSON library",
+      "status": "trusted_contract",
+      "statement": "For serde_json::Value only, two successful interpretations of identical raw JSON have identical finite-depth observations: null/bool/as_u64/text, array order and map iteration keys/values. This includes the Value encoding relation. Observations ignore allocation, Vec capacity and map layout; Number observations intentionally do not model full floating-point identity. No generic custom Deserialize determinism, acceptance or error determinism is asserted.",
+      "sources": [
+        "verification/common/verus/serde_json.rs",
+        "Cargo.toml",
+        "Cargo.lock"
+      ],
+      "evidence": [
+        "verification/wal/verus/catalog_json_equivalence.rs",
+        "verification/wal/verus/catalog_equivalence.rs",
+        "rust/gc.rs",
+        "verification/runners/check_verus.py",
+        "verification/wal/verus/journal_equivalence.rs",
+        "verification/protocol/verus/queue_event_equivalence.rs"
+      ],
+      "review": {
+        "provided_by": "The locked serde_json Value parser/serializer and actual map configuration supply value_parse_consistency. Their internals are trusted. The runner records the compiled features and audits this exact named library law independently from value_encoding.",
+        "implementation_obligation": "Prove observations preserve each consumed wire field, project collection contents without representation equality, prove staging iteration order cannot change final indexes, and induct over the actual raw/typed history to relate completed append and replay states. Queue replay must preserve each transaction/event position and the full ordered affected-ID sequence, not merely its set.",
+        "unproved": "Library internals, allocation/resource behavior and compiler correctness remain outside the proof. String content-key identity is an explicit ENV-STRING-KEY premise. Fixed namespace/resolver/set-builder, native File/locks and selection of the recovered prefix remain separate obligations. Complete Coordinator replay and GC composition are not implied."
+      }
+    },
+    "ENV-CROSS-COMPOSITION": {
+      "layer": "cross-log protocol",
+      "status": "direct_unproved_premise",
+      "statement": "Composition transitions expose independent durable queue/catalog effects, including acceptance with lost apply/reply and arbitrary repeated recovery. Immutable complete publication recipes and initially durable payloads/names are inputs. Crashes may restore unsynced deletions but cannot erase protected durable names. Queue namespaces and single-owner fencing are supplied separately; no atomic transaction spanning logs is assumed.",
+      "sources": [
+        "verification/protocol/tla/EnvironmentCrossComposition.tla",
+        "verification/protocol/verus/cross_log.rs",
+        "verification/common/verus/environment.rs"
+      ],
+      "evidence": [
+        "verification/protocol/tla/CrossLogComposition.tla",
+        "verification/protocol/tla/DurableHandoff.tla",
+        "rust/coordinator.rs",
+        "rust/gc.rs",
+        "rust/protocol.rs"
+      ],
+      "review": {
+        "provided_by": "Filesystem persistence supplies deletion restoration/sync semantics. straw supplies durable lower-effect linearization, complete immutable closure recipes, queue/holder/staging namespace separation and truthful recovered receipts; deployment supplies coordinator fencing.",
+        "implementation_obligation": "Prove actual publication/retain and complete closure mapping, persistence before acceptance, durable retirement before prune, exact snapshots, receipt-plus-stage-release durability and native recovery/lock/File mapping. Compose the actual dispatcher/effect contracts with this multi-request invariant.",
+        "unproved": "This is an unbounded protocol model plus bounded exploration, not complete native call-chain refinement. DurableHandoff separately expands one queue/catalog uncertain-frame schedule; its projection into this model and native lower effects remain open. Stale lease/epoch admission, training cursor/checkpoint correspondence, writer restart/fencing/draining and GC liveness are separate obligations. No runtime or throughput claim."
+      }
+    },
+    "ENV-CLOSURE-SOURCE": {
+      "layer": "Rust closure source",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Source::expand reads one immutable reference node: success returns its exact physical pack and every keyed record/dependency child; failure may change read/identity caches but not the immutable graph View. Root and child keys bind to their actual reference values. This is a lower straw adapter contract, not an assumption that the entire closure traversal is correct. The lower Digest contract maps serialized Value content to a stable key; the native serializer/SHA adapter correspondence is a separate obligation.",
+      "sources": [
+        "rust/closure.rs",
+        "rust/closure_node.rs",
+        "rust/gc.rs",
+        "rust/store.rs",
+        "rust/staging_consumption.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "tests/test_dependency_traversal.py",
+        "tests/test_catalog_encoding.py",
+        "tests/test_online_gc.py"
+      ],
+      "review": {
+        "provided_by": "Native ClosureReader, Reader::manifest/index, reference digests and namespace identity resolution must implement the per-node contract. Storage supplies immutable authenticated contents under existing read/persistence contracts.",
+        "implementation_obligation": "Bind root and child digests to references; enumerate both records and dependencies; map each validated node to its actual canonical pack; keep run/namespace/graph context stable across cached results. Native snapshot/lock and invalid-reference admission remain caller obligations.",
+        "unproved": "Actual closure_node functions prove reference field selection, shape/error precedence, complete ordered child enumeration and digest/reference binding under Digest and Value library contracts. complete_keys and graph_binding connect this output to traversal keys given graph-domain and key-context premises. Actual generic closure::collect proves exact reachability, finite traversal, complete cache insertion/eviction preservation and no partial cache on read error; closure::resolve composes the actual tombstone check. Initial cache completeness and finite immutable well-formed graph are preconditions; empty_cache proves the empty base. Native ClosureReader conformance, authenticated manifest decoding, serializer/SHA digest and namespace adaptation, graph context and Catalog cache-context binding are not yet proved. Runtime termination of external I/O, allocation limits and end-to-end retain/GC liveness are not implied."
+      }
+    },
+    "ENV-FILE-PRIMITIVES": {
+      "layer": "Rust file primitives",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "FileView separates a bound descriptor identity, visible bytes, cursor and durable prefix. Buffer construction preserves the logical view; consuming a buffer returns the same underlying file identity/bytes/durability but may expose a different physical cursor. File/Buffer reads preserve exact bytes and logical cursor on success; an empty read is allowed past EOF. File seek/truncate and the barrier establish their declared effects only on Ok; errors may have side effects. Append position/write/sync primitives and successful fault hooks must preserve the stated file context.",
+      "sources": [
+        "rust/wal_source.rs",
+        "rust/wal_sink.rs",
+        "rust/wal_device.rs",
+        "rust/wal_file.rs",
+        "rust/file_adapter.rs",
+        "rust/file_primitives.rs",
+        "rust/journal_io.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/wal_file.rs",
+        "tests/test_wal_recovery.py",
+        "tests/test_journal_contract.py"
+      ],
+      "review": {
+        "provided_by": "OS/filesystem, Rust File/BufReader/Take semantics, SHA and explicit synchronization/fault callbacks. Thin NativeFile/NativeBuffer/NativeBarrier/NativeHooks wrappers must implement these lower contracts.",
+        "implementation_obligation": "Bind the opened handle and consistent snapshot to FileView; pass the same handle and exact spans to standard-library operations; make barriers actually synchronize and require successful fault hooks not to mutate the modeled file. Keep logical buffered and physical descriptor cursors distinct. Establish outer run/namespace/lock correspondence.",
+        "unproved": "Actual NativeFile and NativeBuffer now implement the File/Buffer contracts in checked shared Rust using a non-copy tracked permission tied to raw descriptor identity. The actual allocation/read/Result dispatch, cursor/offset arguments, buffer transfer, two-part SHA input sequence and same-file append primitives are checked. File and Writer validity is explicitly established and preserved through Source/Appender and their callers, including errors. ENV-NATIVE-FILE-PRIMITIVES fixes the audited OS/standard-I/O boundary. Initial outer open/lock/run authority, callbacks, native SHA/error primitive wrappers and complete Journal/catalog composition remain separate obligations. Checked Source/Appender finish and constructor error paths now close the native descriptor/permission loans through actual journal_io recover/append/retire entry points. Initial open/run/lock authority remains outside those calls."
+      }
+    },
+    "ENV-CATALOG-TRANSACTION": {
+      "layer": "Rust catalog transaction",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "The transaction dispatcher receives a catalog bound to its actual file identity, an inactive or interrupted guard, and a fresh per-invocation callback count. Cloned locks preserve file identity; successful acquisition holds exclusion. A fresh open may return a different identity and must be checked. Refresh establishes usable recovered state under that lock. Legal callbacks may fail after effects and may leave the context unready; if they leave an active context, they preserve the transaction identity and recovery provenance. Unlock errors do not imply release.",
+      "sources": [
+        "rust/catalog_transaction.rs",
+        "rust/gc.rs",
+        "rust/store.rs",
+        "rust/catalog_runtime.rs",
+        "rust/catalog_primitives.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/gc.rs",
+        "tests/test_online_gc.py",
+        "tests/test_durable_handoff.py"
+      ],
+      "review": {
+        "provided_by": "OS/filesystem primitives supply lock/open/metadata behavior and stable identities; straw Transaction adapters supply pool/run binding, refresh, callback and guard correspondence. Callback legality is a straw/caller obligation, not an OS guarantee.",
+        "implementation_obligation": "Establish the initial valid identity and per-call state; implement exact binding/context checks; preserve the locked inode through refresh and legal callback operations; bind ready/refreshed to confirmed WAL recovery, not merely a boolean. Map every public callback/API and callback replacement/unwind to this context. Keep the lock inode stable externally throughout the transaction. Public callbacks receive LockedCatalog with a private borrowed Catalog and no DerefMut; forwarding must not expose mutable ownership or change the guarded context. Invalidate the log when an invoked callback unwinds, as well as rejecting subsequent entry.",
+        "unproved": "Actual catalog_runtime owns the file, non-copy permission, pool/run, log and namespace. Its checked initialization/binding, primitive lock wrappers, fresh file-plus-permission installation, complete Source recovery, Appender event append, once-only callback dispatch, context validation and outer borrow return establish the generic Effects contracts. ENV-CATALOG-OS-PRIMITIVES names the five trusted OS calls. External FnOnce callbacks must preserve the explicit Call contract; all internal business/catalog/GC callbacks still need concrete conformance. Arbitrary Rust unwinding, filesystem internals, contention progress and full cross-log composition remain outside this normal-return chain. Existing native unwind guards and compile-fail borrow escape examples supply separate evidence, not a Verus proof of arbitrary unwind."
+      }
+    },
+    "ENV-GC-PRIMITIVES": {
+      "layer": "physical reclamation",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "GC resolve binds a marked batch index to a stable path and exact parent. Stat is advisory and may report missing for an existing target. Successful unlink, including NotFound, establishes current absence; errors can have effects and lose transient absence but preserve durable deletion. Opening a parent binds the returned directory handle to that parent. Successful sync establishes durable absence under that handle; successful repair must establish the same guarantee through creation and all required ancestor barriers. Successful fault callbacks preserve the modeled filesystem; failed callbacks may have effects. IoError::is_missing reports exactly ErrorKind::NotFound.",
+      "sources": [
+        "rust/gc_io.rs",
+        "rust/gc_collection.rs"
+      ],
+      "evidence": [
+        "rust/gc.rs",
+        "rust/store.rs",
+        "rust/directory_io.rs",
+        "tests/test_gc_batch.py",
+        "tests/test_gc_missing_parent.py",
+        "tests/test_gc_receipts.py",
+        "verification/measurements/20261026-gc-collection.json"
+      ],
+      "review": {
+        "provided_by": "Filesystem unlink/open/barrier semantics and standard I/O error classification; stable private namespace and legal fault callbacks. Native adapters supply the target/path/handle correspondence.",
+        "implementation_obligation": "Resolve the original marked target, use stat only for byte accounting, always unlink, propagate non-NotFound errors, and complete sync or repair before returning success. Bind repair to the complete canonical ancestor chain and its barriers.",
+        "unproved": "Actual gc_collection::Batch and Repair now derive the indexed target snapshot, stable context, shared parent barriers, ordered ancestor repair and exact durable catalog receipt from ENV-GC-NAMED-PRIMITIVES plus Writer/Resolver/library contracts. The actual gc_io and directory_io bodies establish error dispatch and complete barrier execution; successful receipts require durable absence for all original targets. Native path/syscall and canonical-ancestor correspondence, the refreshed lock/descriptor entry context, logical root/dependency completeness, complete native append binding and conditional eventual discovery/mark/retry remain separate obligations. The actual Batch::run additionally composes durable mark, the full pending snapshot, deletion/barriers and receipt with exact success and failure prefixes. The outer coordinator/lock/root provenance and conditional liveness obligations remain open."
+      }
+    },
+    "ENV-QUEUE-APPLICATION-HOOKS": {
+      "layer": "queue application callbacks",
+      "status": "trusted_contract",
+      "statement": "Each invocation of Hooks::before or Hooks::after extends its observation sequence with exactly that callback kind and whether it returned Ok. The callbacks may fail independently, may have external effects and may unwind. The normal-return contract grants no termination, durability or business/cache correctness. Independent borrowing prevents their normal return from mutating the supplied business and journal states.",
+      "sources": [
+        "rust/queue_application.rs",
+        "rust/coordinator.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "tests/native.rs",
+        "tests/test_commit_protocol.py"
+      ],
+      "review": {
+        "provided_by": "The application-provided Fault callback and the native ApplyHooks adapter. The observation contract models the callback invocation/result boundary; it is not a guarantee that the complete transaction succeeds.",
+        "implementation_obligation": "Call the correct before_commit_apply/after_commit_apply hook, propagate its exact error, keep the actual journal poisoned through business application and both hooks, create a confirmation only after full success, and consume that confirmation before clearing quarantine. Recovery must construct fresh business state and return it only after complete replay; a failed recovery remains poisoned and cannot authorize reuse.",
+        "unproved": "queue_application proves the actual arm/apply/confirm/permitted/restore functions, precise business failure prefixes, callback trace and a fresh successful history fold. Native ApplyHooks name/result mapping and CommitIo confirmation-slot/context conformance are reviewed and regression-tested, not separately verified through the full Coordinator type. Native callback arbitrary unwind/termination, the public mutable Rust API, journal/File identity, cache/bookkeeping contents and complete commit/catalog/GC composition remain open. No filesystem effect or entire straw algorithm is supplied by this callback contract."
+      }
+    },
+    "ENV-WRITER-RETIREMENT": {
+      "layer": "writer retirement and durable operation recovery",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "A writer incarnation uses one permanent gate inode and never removes its fence or retirement markers. A paused writer cannot pass its held gate to a retiree; after process death, previously submitted I/O must finish or be cancelled before gate handoff (EnvGateMayPass). Advisory-lock acquisition alone does not establish this property. Successful file and directory synchronization faithfully persist their effects; errors may follow effects. Operation evidence is durable before preparation ownership, every recoverable result is staged before any registered preparation owner is released, and a retirement receipt follows fencing, draining, reconciliation and sealing. Fairness and eventual writer exit/effect availability are required only for conditional progress. After lock handoff, the fence observation must be fresh/coherent with the prior durable fence; a stale negative directory-entry cache cannot authorize the retired writer.",
+      "sources": [
+        "verification/gc/tla/EnvironmentWriterRetirement.tla",
+        "rust/writer_retirement.rs",
+        "rust/writer_gate_flow.rs",
+        "rust/writer_ownership.rs"
+      ],
+      "evidence": [
+        "verification/gc/tla/WriterRetirement.tla",
+        "rust/writer_gate.rs",
+        "rust/gc_writer.rs",
+        "rust/store.rs"
+      ],
+      "review": {
+        "provided_by": "OS/filesystem gate exclusion, process-exit descriptor handling, completion/cancellation of submitted I/O, immutable namespace identities and synchronization semantics; application scheduling and repeated retirement calls supply progress.",
+        "implementation_obligation": "Bind every Store mutation to its exact incarnation gate, check the durable fence while holding it, register exact operation/owner/dependency evidence before holds, replay uncertain registry outcomes, stage all recovered results before releasing exact preparation owners, preserve unrelated owners, drain physical files, seal reservations and persist the receipt last. Parse and validate the registry without accepting invented completion evidence. The checked writer_ownership loops must validate every selected owner against registry evidence, cover each held path using dependencies registered for that same owner, and select precisely the unsealed packs whose canonical parent matches the writer directory. Native catalog snapshots, dependency-closure certification and canonical-parent comparison remain separate leaf correspondences.",
+        "unproved": "Checked production algorithms now include exact registry raw-event/business histories, reconciliation, gate acquisition/identity/fence admission, durable marker ordering, full enumerated-file drain dispatch, registered-owner coverage and exact writer-directory seal selection. Native gate/registry/catalog primitive mapping, authenticated graph validation and complete publication-to-retirement caller composition remain separate obligations. Native locking does not prove deployment completion/cancellation of remote in-flight I/O. Permanent legitimate owners may prevent physical reclamation; no PID or timeout justifies retirement. The four-host finite smoke does not establish lock-handoff fence freshness or exclude stale negative directory entries; unbounded progress remains conditional."
+      }
+    },
+    "ENV-QUEUE-GC-CALLS": {
+      "layer": "queue root retirement and GC dispatch",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "The actual root-selection, retention WAL/application and locked GC algorithms consume separate JSON/digest, File/Writer, resolver and named filesystem primitive contracts. queue_gc_prepare selects roots, invokes a preflight callback that cannot borrow queue/WAL state, persists and applies exactly those roots through journal_io::retire, then builds their prefixed owners. Preflight has no successful-effect assumption. The same private retirement token reaches locked require/prune/collect; no whole straw commit or GC operation is supplied as an external guarantee.",
+      "sources": [
+        "rust/queue_gc.rs",
+        "rust/queue_roots.rs",
+        "rust/queue_retirement.rs",
+        "rust/queue_gc_prepare.rs",
+        "rust/journal_io.rs",
+        "rust/gc_collection.rs"
+      ],
+      "evidence": [
+        "rust/coordinator.rs",
+        "rust/gc.rs",
+        "tests/test_queue_gc_roots.py"
+      ],
+      "review": {
+        "provided_by": "JSON/String/digest and filesystem primitives provide their individual contracts; native callbacks provide only stated normal-return effects. Complete progress selection/cache, opened-file authority and locked catalog provenance are straw caller obligations.",
+        "implementation_obligation": "Bind the exact selected retention positions to a durable RetentionAdvanced transaction, derive root preservation from the actual metadata edit, construct every prefixed owner, refresh and hold the correct catalog context, reject missing/reclaimed ownership before pruning, preserve peer and live owners, and compose lower-level durable deletion/receipt guarantees.",
+        "unproved": "Actual queue_gc_prepare, queue_retirement::commit, journal_io::retire and gc_collection collect wrappers derive roots-to-durable-retirement and marked-targets-to-receipt guarantees and return their original borrowed states. Coordinator progress source/cache identity, complete native locked catalog callback correspondence and physical primitive mapping remain separate obligations. No Preflight contract assumes successful catalog cleanup. Root traversal proofs cover normal return, not unbounded recursive stack or allocation termination."
+      }
+    },
+    "ENV-NAMESPACE-PRIMITIVES": {
+      "layer": "namespace resolution primitives",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Primitive canonicalize/readlink responses and Path component operations describe one stable namespace. A successful canonicalize returns that path identity, readlink binds the observed target, and missing/nonlink classifications permit reconstruction of absent suffixes. Native borrowed split iteration yields all original components in order without copies. Identity-cache input entries already agree with this namespace; component steps preserve the namespace and report the identity of the supplied prefix.",
+      "sources": [
+        "rust/namespace_identity.rs",
+        "rust/namespace_target.rs",
+        "rust/namespace_step.rs"
+      ],
+      "evidence": [
+        "rust/store.rs",
+        "tests/test_path_identity.py",
+        "tests/test_catalog_encoding.py"
+      ],
+      "review": {
+        "provided_by": "Filesystem and standard Path/OsStr/str iteration semantics under ENV-NAMESPACE; native thin adapters bind those primitives. Initial cache/context validity must be established by straw.",
+        "implementation_obligation": "Validate relative names, maintain the exact original component prefix, reject pool escapes, check cached identities, follow at most forty links, reconstruct missing suffixes in order, clear caches on the correct replay/context transition and bind resolved identities to catalog decoding.",
+        "unproved": "The actual zero-copy component construction, source/adapter construction, cache validity propagation, legacy dispatch and namespace_step::Backend per-component resolution are now checked under stable namespace, std Path/string iteration and individual readlink/canonicalize/classification/strip-prefix contracts. Native thin primitive correspondence, filesystem namespace stability, authenticated closure reads and the complete locked catalog/publication/GC call chain remain separate obligations. No path existence or visibility guarantee follows from a stable name-to-identity cache."
+      }
+    },
+    "ENV-GC-NAMED-PRIMITIVES": {
+      "layer": "physical reclamation",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Named GC primitives preserve a stable name-to-path-to-parent mapping and directory-handle identity. Successful unlink, including NotFound, confirms absence; failed operations may have physical effects. Durable absence is preserved, and no peer recreates these tombstoned names during the exclusive collection borrow. prepare_parent creates directories and returns the complete canonical ancestor barrier set without hiding synchronization. Each successful ancestor barrier is recorded; completing the required set makes the repaired parent deletion durable. Stat is advisory byte accounting only.",
+      "sources": [
+        "rust/gc_collection.rs",
+        "rust/gc.rs",
+        "rust/catalog_gc.rs"
+      ],
+      "evidence": [
+        "rust/gc_io.rs",
+        "rust/directory_io.rs",
+        "rust/gc_receipt.rs",
+        "tests/test_gc_batch.py",
+        "tests/test_gc_missing_parent.py",
+        "tests/test_gc_receipts.py"
+      ],
+      "review": {
+        "provided_by": "OS/filesystem unlink, directory handles and barrier semantics; the native PhysicalIo path/syscall adapter and stable namespace supply the primitive correspondence.",
+        "implementation_obligation": "Bind the exact marked names and immutable context to paths, retain the catalog lock, prohibit legitimate name recreation, enumerate every required ancestor, propagate each barrier result and issue only the matching durable receipt. The actual generic Batch and Repair bodies establish index projection, parent coverage and receipt dispatch under these named primitive contracts.",
+        "unproved": "Native Path/File syscall wrapper correspondence, complete canonical ancestor enumeration, initial lock/refreshed catalog context and filesystem persistence remain explicit boundaries. The checked adapter composition is not proof of arbitrary callback mutation, filesystem internals, eventual discovery or complete end-to-end GC progress."
+      }
+    },
+    "ENV-NATIVE-FILE-PRIMITIVES": {
+      "layer": "native WAL I/O",
+      "status": "trusted_contract",
+      "statement": "Each standard I/O primitive acts on the descriptor bound to its exclusive tracked permission. File values expose only stable handle identity; bytes, cursor and durable prefix belong to the non-copy permission. Successful metadata/read/seek/write/truncate/sync obey the declared snapshot, cursor and durability equations. Errors may change bytes/cursor/durability but preserve handle/token identity. BufReader<Take<&mut File>> transfers the same borrowed descriptor and permission; dropping the buffer may advance the physical cursor. No peer changes this log while its protocol authority is held; successful observations are coherent with the permitted file snapshot. SHA streaming and error/callback conversion retain their separate library/hook contracts. Buffer construction, reads and consumption also preserve the original borrowed handle’s final identity; this is a standard-library borrowing premise, not a whole replay assumption.",
+      "sources": [
+        "rust/file_primitives.rs",
+        "rust/file_adapter.rs",
+        "rust/wal_file.rs",
+        "rust/journal_io.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/wal_source.rs",
+        "rust/wal_sink.rs",
+        "verification/measurements/20261026-journal-io.json"
+      ],
+      "review": {
+        "provided_by": "OS/filesystem descriptor, buffered-read, metadata and persistence semantics; Rust standard I/O and the pinned SHA library. Callback success/failure follows the existing hook contract.",
+        "implementation_obligation": "Keep the permission bound to the chosen opened inode; borrow the same token through actual NativeFile/NativeBuffer and Source/Appender; pass the real length/offset/input bytes and propagate errors. The outer opened-log/lock/run binding must establish authority and initial token validity before invoking this checked adapter.",
+        "unproved": "The standard-library and filesystem primitive bodies are a pinned audited trusted boundary, not Verus-verified internals. Actual journal_io recovery, append and retention now return the original File/permission through checked Source/Appender loans: success connects replay/append state to that permission’s cursor, bytes and durability, and returned errors preserve identity and required quarantine. Initial Journal/catalog open/lock/permission authority, native callbacks, SHA/error primitive wrappers and complete recovery/publication composition remain separate obligations. No global no-unwind or time-bound assumption is introduced."
+      }
+    },
+    "ENV-CATALOG-OS-PRIMITIVES": {
+      "layer": "catalog native open and exclusion",
+      "status": "trusted_contract",
+      "statement": "The five pinned OS wrappers open the named storage.log without truncation, report descriptor inode identity, clone a descriptor for the same inode, and acquire/release its advisory lock. An opened file receives one initial non-copy permission bound to that descriptor and cursor zero. Creating this permission does not itself grant exclusion. Successful lock acquisition supplies exclusion; errors may follow effects. The stable namespace and peer protocol must prevent legitimate writes outside the held lock, and fresh-open observations under that authority must satisfy the File snapshot contract.",
+      "sources": [
+        "rust/catalog_primitives.rs",
+        "rust/catalog_runtime.rs",
+        "rust/catalog_transaction.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/gc.rs",
+        "tests/test_online_gc.py"
+      ],
+      "review": {
+        "provided_by": "POSIX/filesystem open, metadata, descriptor cloning and lock semantics, plus the deployment stable-lock-inode and cooperative-peer rules. The initial permission is minted only inside the audited open wrapper.",
+        "implementation_obligation": "Compare the actual fresh identity with the held lock identity, install both its file and permission, recover through the checked Source, and preserve the same pool/run/namespace and file binding through callback dispatch and append. Catalog runtime and transaction bodies now check these steps; individual internal callbacks must establish Call validity and durable-boundary preservation.",
+        "unproved": "OS/filesystem internals, stale namespace/cache behavior, lock fairness and arbitrary I/O termination are not proved. Native external FnOnce adapters remain subject to an explicit caller contract; complete internal catalog/GC operations and arbitrary unwind require their own correspondence. Open success alone is not a proof of exclusive ownership."
+      }
+    },
+    "ENV-QUEUE-PROGRESS": {
+      "layer": "consumer progress authentication and cache",
+      "status": "explicit_model_and_adapter_assumptions",
+      "statement": "Reader.members and Reader.read supply immutable manifest-member and record-metadata/raw-byte relations for their exact references on success. They need not succeed and errors may have effects. The checked load algorithm enforces one member, json.v1 codec, actual serde parsing, version 1, u64 positions, String batch IDs and no duplicates. A private cache retains authenticated provenance; hits require actual Value equality, and Clone/PartialEq preserve all modeled JSON observations. This does not assert complete numeric representation or serialized-byte equality.",
+      "sources": [
+        "rust/queue_progress.rs",
+        "rust/queue_gc_prepare.rs",
+        "rust/coordinator.rs",
+        "rust/reference_validation.rs",
+        "rust/reference_node.rs",
+        "rust/record_manifest.rs",
+        "rust/record_index.rs",
+        "rust/extent_retry.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/coordinator.rs",
+        "tests/test_consumer_rewind.py",
+        "tests/test_queue_gc_roots.py"
+      ],
+      "review": {
+        "provided_by": "The authenticated immutable-record/storage layer supplies manifest/record relations. serde and String/u64 set contracts supply observations, parsing and equality. Native ProgressReader must establish these lower relations.",
+        "implementation_obligation": "Select the actual queue consumers.training.progress_ref, bind a cache hit or validated parsed result to that reference, and pass that same progress into root selection and durable retirement. Root selection/cache/shape/duplicate checks are checked shared code. Preserve storage_failed error classification and avoid extra root reads or payload copying.",
+        "unproved": "The actual manifest read/serde/v1-v2 normalization/node/frontier/progress path is checked shared Rust. Native immutable graph/cache compatibility, individual Reader.read/envelope/index authentication and path/checksum mapping remain explicit straw implementation obligations; these whole algorithms are not OS primitives. The allocation-free Map.remove(&str) uses an explicit standard borrowed String/str ordering/removal relation. Complete shared catalog/GC composition remains separate. Proven JSON provenance uses full modeled observations rather than arbitrary numeric representation equality."
+      }
+    },
+    "ENV-JOURNAL-OPEN": {
+      "layer": "queue WAL native open and directory preparation",
+      "status": "trusted_contract",
+      "statement": "The pinned OpenOptions leaf opens the requested path and mode without overwriting an existing log, and creates one descriptor-bound non-copy permission. Successful directory preparation and each file/parent barrier supply their individual durability facts. They do not guarantee successful Journal recovery, Run admission or append. Hooks preserve the permitted descriptor binding while failures may follow physical effects.",
+      "sources": [
+        "rust/journal_primitives.rs",
+        "rust/journal_owner.rs",
+        "rust/journal.rs",
+        "rust/journal_io.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "rust/journal.rs"
+      ],
+      "review": {
+        "provided_by": "OS and standard-library Path/OpenOptions semantics; per-directory creation and synchronization contracts, and the deployment single-writer authority for the queue WAL.",
+        "implementation_obligation": "The checked Journal owner selects the actual open mode, prepares directories, synchronizes a new log and parent, writes the Run frame, or replays the opened bytes and compares the actual first Run value. It checks closed/read-only state and returns the same file permission through recovery/append with error quarantine.",
+        "unproved": "Filesystem and standard-library internals, coherent visibility, external queue authority and arbitrary unwind/termination remain premises. Complete Coordinator commit, application recovery and cross-log ownership composition remain separate straw obligations. Open success alone supplies no distributed exclusion."
+      }
+    },
+    "ENV-JSON-CANONICAL-CONTENT": {
+      "layer": "pinned serde Value canonical serialization",
+      "status": "trusted_contract",
+      "statement": "content denotes canonical serde_json::to_vec bytes for Value under the pinned sorted-map and float_roundtrip configuration. If that library serializes an original Value to raw and successfully parses raw into a Value, corresponding nodes retain canonical content at every finite structural depth. Arrays with equal ordered element contents, Strings with equal characters, and Numbers with the same Some(as_u64) have equal canonical content. Float equality, observation equality and arbitrary original JSON spelling do not imply canonical byte equality.",
+      "sources": [
+        "verification/common/verus/serde_json.rs",
+        "rust/queue_handoff.rs"
+      ],
+      "evidence": [
+        "verification/runners/check_verus.py",
+        "Cargo.lock",
+        "Cargo.toml"
+      ],
+      "review": {
+        "provided_by": "Pinned serde_json Value/Number/Map codecs, finite-float zmij formatting and float_roundtrip parsing; default BTreeMap ordering. The four exact library-law bodies and contracts are hash-pinned by the runner.",
+        "implementation_obligation": "Use the actual Value constructors and exact serializer/parser witnesses. Prove straw handoff envelope construction, business-prefix selection and recovery hashing separately. Never infer canonical content from the weaker JSON observation relation or Value PartialEq.",
+        "unproved": "The serde and float codec internals remain trusted, not Verus-verified. The reviewed implementation and 10012-case finite regression support the boundary but do not prove it. Arbitrary Serialize/Deserialize implementations, arbitrary raw representation preservation and signed-zero equality generalizations are excluded."
+      }
+    }
+  },
+  "models": {
+    "ExtentVisibility": {
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentVisibility.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-VIS",
+        "ENV-AUTH",
+        "ENV-SYNC",
+        "ENV-FAIR"
+      ]
+    },
+    "GCDeletion": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-PEERS",
+        "ENV-GC-IO",
+        "ENV-GC-RETRY"
+      ]
+    },
+    "Ownership": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentCatalog.tla",
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-CATALOG-SERIAL",
+        "ENV-PEERS",
+        "ENV-FENCING",
+        "ENV-AUTH"
+      ]
+    },
+    "Completion": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentInputs.tla",
+        "verification/protocol/tla/EnvironmentClock.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-INPUT",
+        "ENV-CLOCK-ABSTRACT",
+        "ENV-SYNC",
+        "ENV-WAL-RECOVERY",
+        "ENV-FENCING",
+        "ENV-FAIR",
+        "ENV-AUTH"
+      ]
+    },
+    "LeaseSelection": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentInputs.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-INPUT",
+        "ENV-RUNTIME",
+        "ENV-FAIR"
+      ]
+    },
+    "ExtentArithmetic": {
+      "environment_modules": [],
+      "contracts": [
+        "ENV-RUNTIME"
+      ]
+    },
+    "UsageCache": {
+      "environment_modules": [],
+      "contracts": [
+        "ENV-RUNTIME"
+      ]
+    },
+    "Verus": {
+      "environment_modules": [
+        "verification/common/verus/environment.rs",
+        "rust/wal_device.rs",
+        "verification/common/verus/serde_json.rs",
+        "verification/common/verus/collections.rs",
+        "rust/catalog_decode.rs",
+        "rust/protocol.rs",
+        "rust/gc_batch.rs",
+        "rust/catalog_target.rs",
+        "rust/closure.rs",
+        "rust/closure_node.rs",
+        "rust/wal_source.rs",
+        "rust/wal_sink.rs",
+        "rust/catalog_transaction.rs",
+        "rust/gc_io.rs",
+        "rust/directory_io.rs",
+        "rust/queue_application.rs",
+        "rust/writer_retirement.rs",
+        "rust/namespace_identity.rs",
+        "rust/namespace_target.rs",
+        "rust/queue_gc.rs",
+        "rust/catalog_namespace.rs",
+        "rust/gc_collection.rs",
+        "rust/namespace_step.rs",
+        "rust/file_primitives.rs",
+        "rust/file_adapter.rs",
+        "rust/writer_gate_flow.rs",
+        "rust/writer_ownership.rs",
+        "rust/queue_gc_prepare.rs",
+        "rust/catalog_primitives.rs",
+        "rust/catalog_runtime.rs",
+        "rust/queue_progress.rs",
+        "rust/journal_owner.rs",
+        "rust/journal_primitives.rs",
+        "rust/reference_validation.rs",
+        "rust/staging_consumption.rs",
+        "rust/catalog_gc.rs",
+        "rust/reference_node.rs",
+        "rust/record_manifest.rs",
+        "rust/record_index.rs",
+        "rust/extent_retry.rs"
+      ],
+      "contracts": [
+        "ENV-RUNTIME",
+        "ENV-AUTH",
+        "ENV-VERUS-PROGRESS",
+        "ENV-VERUS-CATALOG",
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-GC-IO",
+        "ENV-GC-RETRY",
+        "ENV-STRING-KEY",
+        "ENV-STREAM",
+        "ENV-STRING-ORDER",
+        "ENV-LOCAL-ACCESS",
+        "ENV-COMMIT-CLEANUP",
+        "ENV-TYPED-DECODE",
+        "ENV-REPLAY-IO",
+        "ENV-REPLAY-APPLY",
+        "ENV-JSON-LIBRARY",
+        "ENV-APPEND-IO",
+        "ENV-COLLECTION-ITERATOR",
+        "ENV-CATALOG-RESOLVER",
+        "ENV-SET-BUILDER",
+        "ENV-COMMIT-EFFECTS",
+        "ENV-GC-BATCH-EFFECTS",
+        "ENV-JSON-PARSE",
+        "ENV-JSON-ENCODE",
+        "ENV-JSON-VALUE-CONSISTENCY",
+        "ENV-CROSS-COMPOSITION",
+        "ENV-GRAPH",
+        "ENV-CLOSURE-SOURCE",
+        "ENV-FILE-PRIMITIVES",
+        "ENV-CATALOG-TRANSACTION",
+        "ENV-GC-PRIMITIVES",
+        "ENV-DIRECTORY",
+        "ENV-QUEUE-APPLICATION-HOOKS",
+        "ENV-WRITER-RETIREMENT",
+        "ENV-QUEUE-GC-CALLS",
+        "ENV-NAMESPACE-PRIMITIVES",
+        "ENV-GC-NAMED-PRIMITIVES",
+        "ENV-NATIVE-FILE-PRIMITIVES",
+        "ENV-CATALOG-OS-PRIMITIVES",
+        "ENV-QUEUE-PROGRESS",
+        "ENV-JOURNAL-OPEN",
+        "ENV-JSON-CANONICAL-CONTENT"
+      ]
+    },
+    "GCBatchDeletion": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-GC-IO",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-GC-RETRY",
+        "ENV-PEERS"
+      ]
+    },
+    "GCReceipt": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-WAL-RECOVERY",
+        "ENV-GC-IO",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-GC-RETRY",
+        "ENV-PEERS",
+        "ENV-GC-STAT"
+      ]
+    },
+    "PayloadStream": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentInputs.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-STREAM",
+        "ENV-RUNTIME",
+        "ENV-AUTH",
+        "ENV-FAIR"
+      ]
+    },
+    "DependencyTraversal": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentGraph.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-GRAPH",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-PEERS"
+      ]
+    },
+    "ReactivationScan": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentRead.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-READ",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-GRAPH",
+        "ENV-PEERS",
+        "ENV-CATALOG-SERIAL",
+        "ENV-RUNTIME"
+      ]
+    },
+    "ReactivationRace": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentCatalog.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-CATALOG-SERIAL",
+        "ENV-VERUS-CATALOG",
+        "ENV-GRAPH",
+        "ENV-AUTH",
+        "ENV-PEERS",
+        "ENV-GC-IO",
+        "ENV-FAIR"
+      ]
+    },
+    "CatalogReplay": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-WAL-RECOVERY",
+        "ENV-CATALOG-SERIAL",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "CatalogReadBuffer": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentRead.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-READ",
+        "ENV-FAIR",
+        "ENV-RUNTIME"
+      ]
+    },
+    "GCDiscovery": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentCatalog.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-GC-DISCOVERY",
+        "ENV-FAIR",
+        "ENV-VERUS-CATALOG"
+      ]
+    },
+    "DirectoryDurability": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-DIRECTORY",
+        "ENV-SYNC",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "PublicationRetry": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentInputs.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-PUBLICATION-RETRY",
+        "ENV-GRAPH",
+        "ENV-VERUS-CATALOG",
+        "ENV-PEERS",
+        "ENV-FAIR"
+      ]
+    },
+    "PublicationFinalization": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-PUBLICATION-FINALIZE",
+        "ENV-VERUS-CATALOG",
+        "ENV-SYNC",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "PendingPublication": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-PENDING-PUBLICATION",
+        "ENV-SYNC",
+        "ENV-AUTH",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "NamespaceIdentity": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentNamespace.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-NAMESPACE",
+        "ENV-CATALOG-SERIAL",
+        "ENV-GRAPH",
+        "ENV-PEERS",
+        "ENV-GC-IO",
+        "ENV-SYNC",
+        "ENV-FAIR"
+      ]
+    },
+    "NamespaceEncoding": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentNamespace.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-NAMESPACE",
+        "ENV-PEERS",
+        "ENV-FAIR"
+      ]
+    },
+    "IncompletePublication": {
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentIncomplete.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-INCOMPLETE",
+        "ENV-NAMESPACE",
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-GC-IO",
+        "ENV-CATALOG-SERIAL",
+        "ENV-PUBLICATION-FINALIZE",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "GCParentRepair": {
+      "environment_modules": [
+        "verification/gc/tla/EnvironmentParentRepair.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-GC-PARENT",
+        "ENV-NAMESPACE",
+        "ENV-DIRECTORY",
+        "ENV-SYNC",
+        "ENV-GC-IO",
+        "ENV-DELETE-FAILURE",
+        "ENV-CATALOG-SERIAL",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-GC-RETRY"
+      ]
+    },
+    "WriterLifetime": {
+      "environment_modules": [
+        "verification/gc/tla/EnvironmentWriter.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-WRITER-LIFETIME",
+        "ENV-CATALOG-SERIAL",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-GC-RETRY"
+      ]
+    },
+    "PublicationPreparation": {
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentPreparation.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-PREPARATION",
+        "ENV-SYNC",
+        "ENV-GC-IO",
+        "ENV-CATALOG-SERIAL",
+        "ENV-NAMESPACE",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "PublicationHandoff": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentHandoff.tla",
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-HANDOFF",
+        "ENV-PUBLICATION-FINALIZE",
+        "ENV-CATALOG-SERIAL",
+        "ENV-GRAPH",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "StagingConsumption": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentConsumption.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-CONSUMPTION",
+        "ENV-GRAPH",
+        "ENV-CATALOG-SERIAL",
+        "ENV-WAL-RECOVERY",
+        "ENV-SYNC",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "ProvisionalHold": {
+      "contracts": [
+        "ENV-PREPARATION",
+        "ENV-PUBLICATION-RETRY",
+        "ENV-HANDOFF",
+        "ENV-CATALOG-SERIAL",
+        "ENV-SYNC",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ],
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "SharedRecordWorkflow": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentConsumption.tla",
+        "verification/common/tla/EnvironmentRead.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-PREPARATION",
+        "ENV-HANDOFF",
+        "ENV-CONSUMPTION",
+        "ENV-CATALOG-SERIAL",
+        "ENV-SYNC",
+        "ENV-GRAPH",
+        "ENV-AUTH",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-READ"
+      ]
+    },
+    "WriterAccess": {
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentLocalAccess.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-LOCAL-ACCESS",
+        "ENV-RUNTIME",
+        "ENV-FAIR"
+      ]
+    },
+    "CommitCleanup": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentCommitCleanup.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-COMMIT-CLEANUP",
+        "ENV-CONSUMPTION",
+        "ENV-CATALOG-SERIAL",
+        "ENV-WAL-RECOVERY",
+        "ENV-SYNC",
+        "ENV-PEERS",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "QueueRecordWorkflow": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentCommitCleanup.tla",
+        "verification/protocol/tla/EnvironmentReaders.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-COMMIT-CLEANUP",
+        "ENV-CONSUMPTION",
+        "ENV-CATALOG-SERIAL",
+        "ENV-WAL-RECOVERY",
+        "ENV-SYNC",
+        "ENV-PEERS",
+        "ENV-FENCING",
+        "ENV-READ",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "RangeRead": {
+      "contracts": [
+        "ENV-READ",
+        "ENV-AUTH",
+        "ENV-RUNTIME",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/common/tla/EnvironmentRead.tla",
+        "verification/storage/tla/EnvironmentAuthentication.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "TensorGranularity": {
+      "contracts": [
+        "ENV-RUNTIME",
+        "ENV-AUTH"
+      ],
+      "environment_modules": []
+    },
+    "TypedRead": {
+      "contracts": [
+        "ENV-TYPED-DECODE",
+        "ENV-AUTH",
+        "ENV-RUNTIME",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentTyped.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "ReadAttempt": {
+      "contracts": [
+        "ENV-VIS",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-RUNTIME"
+      ],
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentVisibility.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "ReadLookup": {
+      "contracts": [
+        "ENV-LOOKUP",
+        "ENV-VIS",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-RUNTIME"
+      ],
+      "environment_modules": [
+        "verification/storage/tla/EnvironmentLookup.tla",
+        "verification/storage/tla/EnvironmentVisibility.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "OfflineCleanup": {
+      "contracts": [
+        "ENV-OFFLINE",
+        "ENV-GRAPH",
+        "ENV-NAMESPACE",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/offline/tla/EnvironmentOffline.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "OfflineAliases": {
+      "contracts": [
+        "ENV-OFFLINE",
+        "ENV-OFFLINE-BINDINGS",
+        "ENV-NAMESPACE",
+        "ENV-GRAPH",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/offline/tla/EnvironmentBindings.tla",
+        "verification/common/tla/EnvironmentNamespace.tla",
+        "verification/offline/tla/EnvironmentOffline.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "OfflineRoots": {
+      "contracts": [
+        "ENV-OFFLINE",
+        "ENV-OFFLINE-BINDINGS",
+        "ENV-NAMESPACE",
+        "ENV-GRAPH",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/common/tla/EnvironmentGraph.tla",
+        "verification/offline/tla/EnvironmentBindings.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ]
+    },
+    "WalRecovery": {
+      "environment_modules": [
+        "verification/wal/tla/EnvironmentWal.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-WAL-PREFIX",
+        "ENV-SYNC",
+        "ENV-AUTH",
+        "ENV-FAIR",
+        "ENV-STABILIZE"
+      ]
+    },
+    "DurableHandoff": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentCrossLog.tla",
+        "verification/common/tla/EnvironmentProgress.tla",
+        "verification/wal/tla/EnvironmentWal.tla"
+      ],
+      "contracts": [
+        "ENV-CROSS-LOG",
+        "ENV-WAL-PREFIX",
+        "ENV-SYNC",
+        "ENV-AUTH",
+        "ENV-CATALOG-SERIAL",
+        "ENV-FENCING",
+        "ENV-PEERS",
+        "ENV-COMMIT-CLEANUP",
+        "ENV-DELETE-FAILURE",
+        "ENV-GC-IO",
+        "ENV-FAIR",
+        "ENV-STABILIZE",
+        "ENV-GC-RETRY"
+      ]
+    },
+    "CatalogTransaction": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "verification/common/tla/EnvironmentProgress.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-FAIR",
+        "ENV-REPLAY-IO",
+        "ENV-REPLAY-APPLY",
+        "ENV-WAL-PREFIX"
+      ]
+    },
+    "CommitApplication": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentApplication.tla"
+      ],
+      "contracts": [
+        "ENV-COMMIT-APPLICATION",
+        "ENV-VERUS-CATALOG",
+        "ENV-WAL-PREFIX",
+        "ENV-COMMIT-CLEANUP",
+        "ENV-GC-IO"
+      ]
+    },
+    "TrainingResume": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentTraining.tla"
+      ],
+      "contracts": [
+        "ENV-TRAINING-CHECKPOINT",
+        "ENV-VERUS-CATALOG",
+        "ENV-WAL-PREFIX",
+        "ENV-GC-IO"
+      ]
+    },
+    "RequestReplay": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentRequest.tla"
+      ],
+      "contracts": [
+        "ENV-REQUEST-REPLAY"
+      ]
+    },
+    "CrossLogComposition": {
+      "environment_modules": [
+        "verification/protocol/tla/EnvironmentCrossComposition.tla"
+      ],
+      "contracts": [
+        "ENV-CROSS-COMPOSITION",
+        "ENV-FENCING",
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-REQUEST-REPLAY",
+        "ENV-COMMIT-CLEANUP"
+      ]
+    },
+    "WriterRetirement": {
+      "contracts": [
+        "ENV-WRITER-RETIREMENT",
+        "ENV-CATALOG-SERIAL",
+        "ENV-PEERS",
+        "ENV-FAIR"
+      ],
+      "environment_modules": [
+        "verification/gc/tla/EnvironmentWriterRetirement.tla"
+      ]
+    }
+  },
+  "not_modeled": [
+    "JuiceFS metadata/object storage internals and network/lock-service recovery",
+    "End-to-end refinement of real catalog/WAL recovery and adapter return values",
+    "Numeric clocks, delayed RPC queues and per-task scheduler fairness",
+    "Power loss, partitions, allocator failure, hash collisions and complete runtime/compiler behavior",
+    "Physical bandwidth or latency SLA as a theorem",
+    "Safe retirement of crashed writers: durable writer fencing, stale in-flight operation draining and recovery of open reservations"
+  ]
+}

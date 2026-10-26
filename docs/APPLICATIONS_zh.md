@@ -26,3 +26,5 @@ straw 核心负责字节、引用、持久化任务、结果接收和存储生�
 联合 checkpoint 应先保留 pending、buffered、prefetched 数据的全部依赖，确保模型/优化器/RNG 和队列视图组件持久化，再发布指明精确版本的最终已提交 manifest。新 checkpoint 持久化之前保留上一份完整 checkpoint。仅模型的 latest 标记或队列消费确认无法替代这一协议。回滚后重做尚未提交的优化器步骤，与重复接收同一个逻辑结果是不同问题。
 
 应用集成测试应覆盖真实 schema、中断/续跑、共享张量生命周期、多 reader 完成信号和整个任务恢复。这些测试补充[核心协议验证](VERIFICATION_zh.md)，不能替代它。
+
+续训必须使用所选已提交模型 checkpoint 对应的数据状态，不能直接套用队列最新 consumer state。Checkpoint 后的新结果应在 processed 确认允许 GC 前建立 replay owner；见[重启语义](USAGE_zh.md#重启后分别续上什么)。

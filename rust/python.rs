@@ -14,7 +14,7 @@ use pyo3::{
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 fn parse(text: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
@@ -238,15 +238,23 @@ impl NativeReader {
             PyBytes::new(py, &record.payload),
         ))
     }
+    #[pyo3(signature = (reference, start, stop, expected=None))]
     fn read_tensor_range<'py>(
         &self,
         py: Python<'py>,
         reference: &str,
         start: u64,
         stop: u64,
+        expected: Option<&str>,
     ) -> PyResult<(String, Bound<'py, PyBytes>, u64)> {
-        let (envelope, data, checked) =
-            self.with_reader(py, |r| r.read_tensor_range(&parse(reference)?, start, stop))?;
+        let (envelope, data, checked) = self.with_reader(py, |r| {
+            r.read_tensor_range_checked(
+                &parse(reference)?,
+                start,
+                stop,
+                expected.map(parse).transpose()?.as_ref(),
+            )
+        })?;
         Ok((
             serde_json::to_string(&envelope).unwrap(),
             PyBytes::new(py, &data),
@@ -269,6 +277,38 @@ impl NativeReader {
 struct NativeStore {
     config: Config,
     writer: Mutex<Store>,
+    pid: u32,
+}
+impl NativeStore {
+    fn writer_access(&self) -> Result<MutexGuard<'_, Store>> {
+        // Fault callbacks run while the writer is held. Waiting here would
+        // deadlock a callback, or a caller that must let that callback return.
+        let (token, poisoned) = match self.writer.try_lock() {
+            Ok(guard) => (Some(guard), false),
+            Err(TryLockError::WouldBlock) => (None, false),
+            Err(TryLockError::Poisoned(error)) => (Some(error.into_inner()), true),
+        };
+        match crate::access::decide(token, poisoned) {
+            crate::access::Access::Granted(guard) => Ok(guard),
+            crate::access::Access::Busy => Err(Error::new(
+                "ResourceLimitExceeded",
+                "Writer has an in-flight operation",
+            )),
+            crate::access::Access::Poisoned => {
+                Err(Error::new("RuntimeError", "Writer mutex poisoned"))
+            }
+        }
+    }
+    fn check_writer_process(&self) -> PyResult<()> {
+        // A child must not acquire an inherited mutex or act on its parent's
+        // unpublished file. The owning thread may not exist after fork.
+        if !crate::incomplete::writer_process(self.pid, std::process::id()) {
+            return Err(PyRuntimeError::new_err(
+                "Writer cannot be reused after fork; create a fresh writer",
+            ));
+        }
+        Ok(())
+    }
 }
 #[pymethods]
 impl NativeStore {
@@ -278,6 +318,7 @@ impl NativeStore {
         Ok(Self {
             writer: Mutex::new(Store::new(config.clone())),
             config,
+            pid: std::process::id(),
         })
     }
     fn read_session(&self) -> NativeReader {
@@ -294,11 +335,10 @@ impl NativeStore {
         submission_id: &str,
         fault: Py<PyAny>,
     ) -> PyResult<String> {
+        self.check_writer_process()?;
         let records = records(py, &self.config, metadata, payloads)?;
         run(py, &fault, |fault| {
-            let mut store = self.writer.try_lock().map_err(|_| {
-                Error::new("ResourceLimitExceeded", "Writer has an in-flight batch")
-            })?;
+            let mut store = self.writer_access()?;
             Ok(serde_json::to_string(&store.write_inputs(
                 &records,
                 submission_id,
@@ -315,12 +355,11 @@ impl NativeStore {
         submission_id: &str,
         fault: Py<PyAny>,
     ) -> PyResult<String> {
+        self.check_writer_process()?;
         let records = records(py, &self.config, metadata, payloads)?;
         let groups = parse(groups).map_err(|e| exception(py, e))?;
         run(py, &fault, |fault| {
-            let mut store = self.writer.try_lock().map_err(|_| {
-                Error::new("ResourceLimitExceeded", "Writer has an in-flight batch")
-            })?;
+            let mut store = self.writer_access()?;
             Ok(serde_json::to_string(&store.publish_inputs(
                 &groups,
                 records,
@@ -337,14 +376,13 @@ impl NativeStore {
         submission_id: &str,
         fault: Py<PyAny>,
     ) -> PyResult<String> {
+        self.check_writer_process()?;
         let refs: Vec<Value> =
             serde_json::from_str(references).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let deps: Vec<Value> = serde_json::from_str(dependencies)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         run(py, &fault, |fault| {
-            let mut store = self.writer.try_lock().map_err(|_| {
-                Error::new("ResourceLimitExceeded", "Writer has an in-flight batch")
-            })?;
+            let mut store = self.writer_access()?;
             Ok(serde_json::to_string(&store.record_set(
                 &refs,
                 &deps,
@@ -436,17 +474,23 @@ impl NativeStore {
             .map_err(|e| exception(py, e))?;
         Ok((PyBytes::new(py, &data), checked))
     }
+    #[pyo3(signature = (reference, start, stop, expected=None))]
     fn read_tensor_range<'py>(
         &self,
         py: Python<'py>,
         reference: &str,
         start: u64,
         stop: u64,
+        expected: Option<&str>,
     ) -> PyResult<(String, Bound<'py, PyBytes>, u64)> {
         let (envelope, data, checked) = py
             .allow_threads(|| {
-                self.config
-                    .read_tensor_range(&parse(reference)?, start, stop)
+                self.config.read_tensor_range_checked(
+                    &parse(reference)?,
+                    start,
+                    stop,
+                    expected.map(parse).transpose()?.as_ref(),
+                )
             })
             .map_err(|e| exception(py, e))?;
         Ok((
@@ -456,8 +500,11 @@ impl NativeStore {
         ))
     }
     fn metrics(&self, py: Python<'_>) -> PyResult<String> {
-        py.allow_threads(|| serde_json::to_string(&self.writer.lock().unwrap().metrics))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.check_writer_process()?;
+        py.allow_threads(|| -> Result<String> {
+            Ok(serde_json::to_string(&self.writer_access()?.metrics)?)
+        })
+        .map_err(|e| exception(py, e))
     }
     fn storage(
         &self,
@@ -466,6 +513,7 @@ impl NativeStore {
         arguments: &str,
         fault: Py<PyAny>,
     ) -> PyResult<String> {
+        self.check_writer_process()?;
         let args = parse(arguments).map_err(|e| exception(py, e))?;
         run(py, &fault, |fault| {
             let result = self.config.catalog(|c| match method {
@@ -493,10 +541,62 @@ impl NativeStore {
         })
     }
     fn seal(&self, py: Python<'_>, fault: Py<PyAny>) -> PyResult<()> {
-        run(py, &fault, |fault| self.writer.lock().unwrap().seal(fault))
+        self.check_writer_process()?;
+        run(py, &fault, |fault| self.writer_access()?.seal(fault))
+    }
+    fn writer_id(&self, py: Python<'_>) -> PyResult<String> {
+        self.check_writer_process()?;
+        py.allow_threads(|| Ok(self.writer_access()?.writer_id().to_owned()))
+            .map_err(|e| exception(py, e))
+    }
+    fn retire_writer(
+        &self,
+        py: Python<'_>,
+        writer_id: &str,
+        policy: &str,
+        fault: Py<PyAny>,
+    ) -> PyResult<String> {
+        self.check_writer_process()?;
+        let policy = match policy {
+            "recover" => crate::gc::RetirementPolicy::Recover,
+            "abandon" => crate::gc::RetirementPolicy::Abandon,
+            _ => {
+                return Err(exception(
+                    py,
+                    Error::new(
+                        "ValueError",
+                        "Expected recover or abandon retirement policy",
+                    ),
+                ));
+            }
+        };
+        run(py, &fault, |fault| {
+            Ok(serde_json::to_string(
+                &self.config.retire_writer(writer_id, policy, fault)?,
+            )?)
+        })
+    }
+    fn publication_receipt(
+        &self,
+        py: Python<'_>,
+        writer_id: &str,
+        api: &str,
+        submission_id: &str,
+        fault: Py<PyAny>,
+    ) -> PyResult<String> {
+        self.check_writer_process()?;
+        run(py, &fault, |fault| {
+            Ok(serde_json::to_string(&self.config.publication_receipt(
+                writer_id,
+                api,
+                submission_id,
+                fault,
+            )?)?)
+        })
     }
     fn close(&self, py: Python<'_>) -> PyResult<()> {
-        py.allow_threads(|| self.writer.lock().unwrap().close())
+        self.check_writer_process()?;
+        py.allow_threads(|| self.writer_access()?.close())
             .map_err(|e| exception(py, e))
     }
 }

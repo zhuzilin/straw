@@ -1,0 +1,206 @@
+{
+  "checkpoint": "20261025-catalog-admission",
+  "scope": "Catalog validates wire/semantic decoding and ordered index applicability before WAL write/sync, then applies the same prepared operations. Actual read-only index preflight and apply have identical proved acceptance predicates.",
+  "bug_evidence": "Native regression directly invokes the internal append boundary with invalid input and reproduces header/payload/trailer/write/sync effects before the old apply error. No public API generating the malformed event has been demonstrated.",
+  "remaining": "Wire/path-to-operation binding, concrete I/O and descriptor correspondence, complete catalog/coordinator/GC call chains and cross-frame history remain unproved. Typed admission is not a proof of logical ownership semantics.",
+  "verus_positive_checks": 199,
+  "targeted_verus_negative_cases": 6,
+  "tlc_cases": 16,
+  "native_tests": 54,
+  "python_tests": 883,
+  "check_scope": "Four new admission and two existing ordered-apply Verus controls; all sixteen CatalogTransaction cases. Not a fresh complete Verus-negative or TLC campaign.",
+  "verus_inputs": {
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/catalog_json.rs": "07c20126551282a65f5c9172462edb9a631feda5cbd840b88cb382738ecb2008",
+    "rust/catalog_state.rs": "e827aed0380556590a05f50f53ba9743b291ce88e1cdb84292e3b99067651924",
+    "rust/wal.rs": "eadb1f13d1f6389659a2896beac5196fd639a58e32954b8b1114641e6949f3c5",
+    "rust/framing.rs": "e086ae2288dace03f0e552bbd3a95efd02cec5be22e754b999d3cf6c18d423a5",
+    "rust/wal_recovery.rs": "a83fb5d77b0338ac6a995bfedf865a2b0b48383ba9a1b649fd5663d0cb8de648",
+    "rust/wal_device.rs": "39ddfbcaf24bfd5932bf3bcf6e751e2a35f86a929b9ea29e1e2e19e3f4c9af6b",
+    "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+    "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+    "rust/consumption.rs": "96dbdf1eff187ed4dbc569fb38ed9f370cfb91eccf793d6813f2748aeca4e229",
+    "rust/protocol.rs": "a0a97589977fca8a01b0bcab4f720e3b69e0102493a0c111f33a98839641ab47",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+    "rust/replay.rs": "aa12b6904cc485aee1e0dfba5e532367c59e47dd5ec473b7082dd9f39c1810e5",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/identities.rs": "9fc7d6de56d9a13f59a4859fec25934bfdfcc723d07e7519edc072cac8e87b89",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "verification/protocol/verus/control_plane.rs": "5f643bc9f77c0aae9287afea146725cbe9b4a17f21eefcfc2be197e50941eeb4",
+    "verification/protocol/verus/retry_liveness.rs": "6a6dd44fdd9dea77ecbb7a1dcd97203f93de38545be3c323d0802e7c766c21b4",
+    "verification/common/verus/environment.rs": "21f857e01d197a22d00e8e2c63786196f92bb6e81a3c0594da82b92d1b478264",
+    "verification/gc/verus/gc_liveness.rs": "e5ab8b95832ea542991df8d2013ace86f1e7502c8eba9240b0cce223702e8705",
+    "verification/common/verus/verus.rs": "454eb3d0f8eec0ba8285f494835c6ccf98782c4f823681f5a4967d1ec6e1c44f",
+    "verification/common/verus/serde_json.rs": "7ee192eab1cd024290a885d53188c5e32e97a975d61beb2f4446f4ea81ba3aff"
+  },
+  "proof_environment_registry_sha256": "2e357bfb8fc15804ca03343b8f2ed5d253c45247fbbc7ac62276cd2d63dc657a",
+  "tlc_results": [
+    {
+      "case": "catalog_transaction_invalid_event",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 8,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "21afc7eb19e6095c6f492cc87311d9df45117bd956f2965c51d89d1369c08ba4"
+    },
+    {
+      "case": "catalog_transaction_skips_validation",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "InvalidHasNoEffects",
+      "passed": true,
+      "distinct_states": 5,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "860a6b0341c882ab9fdc8286315941180d885a951d1d519b963b9604c34ddb6a"
+    },
+    {
+      "case": "catalog_transaction_invalid_returns_success",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "InvalidReturnsError",
+      "passed": true,
+      "distinct_states": 8,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "a3cbbb33880955b3e279c230576c86a0f8a12fe8c1da552dd3468969c998e692"
+    },
+    {
+      "case": "catalog_transaction_failure_0",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 12,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "fff9047eb245b2ab7eba8c0894d78b1562d257c3116385195830d992168da3af"
+    },
+    {
+      "case": "catalog_transaction_failure_1",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 13,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "686a9518d43f727a91e700f3745221ad0f226c409f15bec96db5bf61955660f3"
+    },
+    {
+      "case": "catalog_transaction_failure_2",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 14,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "cebfcb08a064098e4378f593fc427f490bd8fa5c67d526fa9962942020312a09"
+    },
+    {
+      "case": "catalog_transaction_failure_3",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 15,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "1a5e666feb9abfac3206bbf6f65f227e2b42509f6642801fbe82a13d35d08d93"
+    },
+    {
+      "case": "catalog_transaction_failure_4",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 16,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "f0231b8a856e5819da9097918b09fa4d6088ea8c0352a055258be6e718519339"
+    },
+    {
+      "case": "catalog_transaction_failure_5",
+      "case_kind": "positive",
+      "expected_violation": null,
+      "passed": true,
+      "distinct_states": 12,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "7bb6bb58d249b6c114230f9b44996eec66fa5f65f89fe17fb5462e0bb4d0fa26"
+    },
+    {
+      "case": "catalog_transaction_late_prepare",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "NoWriteAfterError",
+      "passed": true,
+      "distinct_states": 10,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "2c65d4a35dfbfb057382ffb77050fc1cf57b5e255b9258489c9e72f5c19ac5d5"
+    },
+    {
+      "case": "catalog_transaction_cached_bypass",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "NoCachedAfterError",
+      "passed": true,
+      "distinct_states": 10,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "1ba97a3a71e2a6ecadadf89da70156aec778caf779c340b16a9cb6b1e7a4b95c"
+    },
+    {
+      "case": "catalog_transaction_missing_exit_guard",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "NoSuccessAfterError",
+      "passed": true,
+      "distinct_states": 11,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "305e75c83d29c0f4aa1f3019c378a32da427b9e90be22ba340f798fd13360b3c"
+    },
+    {
+      "case": "catalog_transaction_missing_active_guard",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "NoOutsideCall",
+      "passed": true,
+      "distinct_states": 2,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "2de68ffe8a4be1344bbf5be7d1151d9b18644163c1a33ec29b9dc1721aa5b548"
+    },
+    {
+      "case": "catalog_transaction_nested_entry",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "NoNestedEntry",
+      "passed": true,
+      "distinct_states": 4,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "0798af0eeee986e41a1f2e913388a25e6f2653206f8503004fa77984be540124"
+    },
+    {
+      "case": "catalog_transaction_skip_recovery_sync",
+      "case_kind": "algorithm_negative",
+      "expected_violation": "ReadyDurable",
+      "passed": true,
+      "distinct_states": 14,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "de8a4e284c4bec4d48b12a7901d3d64f5d67fa9be1eae143c4878827c2f1dedc"
+    },
+    {
+      "case": "environment_catalog_transaction_sync_lies",
+      "case_kind": "environment_negative",
+      "expected_violation": "ReadyDurable",
+      "passed": true,
+      "distinct_states": 14,
+      "spec_sha256": "338b2702ae14e2555866bec25e40597e4a12e4437d64303aed901d28fa8b699f",
+      "config_sha256": "822d7ceb6fa5e0eb365e894f1a4393cbde2789c46f3788bf87bacb5e4250926e"
+    }
+  ],
+  "artifacts": {
+    "source.tar.gz": "c8e196187e5c0f2dedbce20ac26f210ef108fe650b8a13e608e08f74b7f36001",
+    "straw-catalog-preflight-clippy-default.log": "d302e595e0b8e94da9b91a6d92e862b56785fdafc6f3fa06e3f7fc49a51db163",
+    "straw-catalog-preflight-clippy-final.log": "a121becb1a17afe19301e6482a7b69f095bd19a3d02de3f4a442ce7e2698db94",
+    "straw-catalog-preflight-final-wheel.log": "e00f386701ee82c02a2fa3bc2a8974498e5aaf71ccebe230365a98f4b75352a3",
+    "straw-catalog-preflight-native-final.log": "e3c192002a44ce309c67c07b8b0dfc2ccdf55d62a918e436f5e1ad5cfbfbc4ba",
+    "straw-catalog-preflight-repro.log": "531613fd139dd96e34f665b2dd41356e84bbecd9c5dea914813be1e05fedc0d4",
+    "straw-catalog-preflight-tla-final.log": "34ef6515e5faae6dd78116e4a3f508d92da6704a8d6d2011eb4703ffc539be4b",
+    "straw-catalog-preflight-verus-final.log": "59cb959bf067ce7a19969901092f410e3432a7c7007536b868bda10282c22e9f",
+    "straw-catalog-preflight-wheel-check.json": "34745442be41bc9440100fc1f316974f38bf8aae7266623993f53341cf94c83a",
+    "straw-catalog-preflight-wheel-check.log": "4fa2fa0036a02ea07d409be9eaedf577ea298eb5f956ab9d951b59cbdf001055",
+    "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl": "84c74c024d67a8728d90ef05d953df63562568ead01cbace6171b744468e2cf5",
+    "tla-evidence.tar.gz": "754d31bff38e0449bed4e67c2cef84277c46414fcfe3dee53f2ece51bc09c569",
+    "verus-evidence.tar.gz": "1a76240ca6d43f0c4a6ec55abc855cc96ebc40eb9cd66dfc094cb2e38e1e0ec4"
+  },
+  "artifact_policy": "Only hashes and relative input names are public. Exact proof inputs, raw logs, source and wheel are archived separately; later edits do not inherit these results."
+}

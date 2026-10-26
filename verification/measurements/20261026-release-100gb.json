@@ -1,0 +1,82 @@
+{
+  "passed": true,
+  "node_count": 4,
+  "payload_bytes": 100000000000,
+  "source_sha256": "35150d6cd474a1e87c6cba72b88e6a9ea1a81144f90a758bec611839f20a8bbd",
+  "binary_sha256": "c5be59bcbbd93de43b88d1dfe384c6a8b5ce04f7c26b0f129b6f0a572e5c7a18",
+  "chunk_bytes": 4194304,
+  "preparation_seconds": 113.500584819,
+  "publication_seconds": 358.855183612,
+  "publication_mib_s": 265.7546442013718,
+  "writer_rss_kib": 18392,
+  "parallel_read_wall_seconds": 55.27480690181255,
+  "parallel_read_wall_mib_s": 1725.3326965036895,
+  "readers": [
+    {
+      "node": "node-0",
+      "full_payload_bytes": 25106507776,
+      "full_native_read_seconds": 39.570545002,
+      "full_native_mib_s": 605.0821801775749,
+      "full_calls": 94,
+      "full_call_p50_seconds": 0.414242099,
+      "full_call_p99_seconds": 0.582148248,
+      "all_oracle_seconds": 13.930220879,
+      "all_checked_bytes": 25219753984,
+      "rss_kib": 280888
+    },
+    {
+      "node": "node-1",
+      "full_payload_bytes": 24964497408,
+      "full_native_read_seconds": 38.130174662,
+      "full_native_mib_s": 624.3873837726403,
+      "full_calls": 93,
+      "full_call_p50_seconds": 0.40122657,
+      "full_call_p99_seconds": 0.54049563,
+      "all_oracle_seconds": 13.944808682,
+      "all_checked_bytes": 24964497408,
+      "rss_kib": 280952
+    },
+    {
+      "node": "node-2",
+      "full_payload_bytes": 24964497408,
+      "full_native_read_seconds": 38.044276886,
+      "full_native_mib_s": 625.7971487101956,
+      "full_calls": 93,
+      "full_call_p50_seconds": 0.402793802,
+      "full_call_p99_seconds": 0.530980309,
+      "all_oracle_seconds": 13.823990257,
+      "all_checked_bytes": 25064564736,
+      "rss_kib": 280932
+    },
+    {
+      "node": "node-3",
+      "full_payload_bytes": 24964497408,
+      "full_native_read_seconds": 40.094961227,
+      "full_native_mib_s": 593.7903235573567,
+      "full_calls": 93,
+      "full_call_p50_seconds": 0.421224854,
+      "full_call_p99_seconds": 0.579097221,
+      "all_oracle_seconds": 11.75483889,
+      "all_checked_bytes": 25081341952,
+      "rss_kib": 280944
+    }
+  ],
+  "gc": {
+    "reclaimed_files": 1,
+    "reclaimed_bytes": 100003195567,
+    "owners": 0,
+    "open_packs": 0
+  },
+  "scope": [
+    "One node publishes the 100 GB record; only the subsequent read phase uses all four nodes in parallel. No four-writer aggregate was measured.",
+    "One real position-dependent publication; four readers jointly cover every byte.",
+    "Publication throughput includes regenerating the positioned payload and authentication; it is not a filesystem bandwidth ceiling.",
+    "Parallel read wall time includes SSH, boundary slices and byte oracle.",
+    "Per-node native full-read time excludes the subsequent byte oracle.",
+    "No cache eviction; logical throughput is not device/backend bandwidth.",
+    "One publication is not a publication p99; call percentiles are empirical samples.",
+    "Successful cleanup uses normal ownership release and garbage collection."
+  ],
+  "writer_nodes": 1,
+  "reader_nodes": 4
+}

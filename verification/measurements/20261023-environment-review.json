@@ -1,0 +1,49 @@
+{
+  "date_utc": "2026-10-23T20:57:08.912493+00:00",
+  "kind": "environment_inventory_review",
+  "scope": "Inventory review and validation only; no new Rust implementation change or filesystem/performance measurement.",
+  "registry_version": 2,
+  "registry_sha256": "7cffd578a38126ad470362e20e371c488c2ec7020656cf942e2704cf8534d376",
+  "contracts": 29,
+  "consumers": 21,
+  "review_fields": [
+    "provided_by",
+    "implementation_obligation",
+    "unproved"
+  ],
+  "changes": [
+    "Separate environment response statements from algorithm obligations for streaming, GC discovery/stat and pending publication.",
+    "Add declared consumer queries and structural validation, including paths, review fields, duplicate keys, model coverage and imports.",
+    "Add independent CI inventory check and bilingual review instructions."
+  ],
+  "validation": {
+    "inventory_negative_controls": 10,
+    "reverse_lookups_checked": 29,
+    "tla_cases": 129,
+    "tla_environment_negatives": 8,
+    "verus_production_verified": 88,
+    "verus_semantic_negatives": 58,
+    "verus_environment_negatives": 4,
+    "prior_comparison": "All TLC algorithm/environment/config hashes, state counts and checked properties unchanged. All Verus inputs, per-case outcomes and filters unchanged from the pending-publication run.",
+    "python_format": "black and isort passed across src, tests, examples, tools and verification",
+    "local_document_targets_checked": 100,
+    "git_diff_check": "passed"
+  },
+  "reproduce": {
+    "inventory": "python verification/environment_manifest.py --check",
+    "contract": "python verification/environment_manifest.py --contract ENV-GC-IO",
+    "consumer": "python verification/environment_manifest.py --model GCReceipt",
+    "tla": "python verification/check_tla.py --jar private-artifact-0067 --output private-artifact-0068",
+    "verus": "PATH=private-artifact-0069 RUSTUP_HOME=private-artifact-0070 CARGO_HOME=private-artifact-0071 python verification/check_verus.py --verus private-artifact-0072 --output private-artifact-0073"
+  },
+  "limitations": [
+    "Declared dependency checks do not establish semantic completeness, adapter conformance or deployment certification.",
+    "Evidence links are review inputs, not proofs that a premise holds.",
+    "Generic next-stage progress, complete recovery refinement, real locking and filesystem semantics remain open.",
+    "This run does not add bandwidth samples, latency bounds or whole-system Rust verification."
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

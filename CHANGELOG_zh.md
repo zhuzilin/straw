@@ -2,6 +2,49 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.4
+
+### 恢复与续读
+
+- 在线 GC 保留 producer continuation，以及独立的 reader、consumer 和 checkpoint 根。采样进程失败后可以从已持久化的 continuation 恢复。训练应用仍须选择并加载 checkpoint，恢复相匹配的模型／optimizer 状态与数据游标，并保留重放需要的数据；straw 不会自动加载模型 checkpoint，也不能恢复已回收的数据。
+- 重试已接受的 consumer state、batch plan、batch ready 和 checkpoint registration 时，先查询持久回执，再决定是否读取旧引用。即使旧数据已合法回收，相同请求仍可返回原结果，不会重新建立所有权。
+- 持久化 staging 清理意图、依赖关系和对应代际的完成回执。丢失回复后，恢复可以完成已接受的交接，不会释放同一引用后来重新建立的 staging。
+- WAL 写入结果不确定、状态部分应用或捕获 Rust callback panic 后，保持隔离直至恢复。追加前拒绝畸形 journal／catalog 事件，重建时保护已确认前缀，并拒绝池／run／日志身份变化。补齐计数溢出检查，发放 lease 前对重复 task ID 去重。
+
+### 存储与读取
+
+- header、footer、index、envelope、payload 和 tensor checksum chunk 可在同一有限预算内重试各自的可见性延迟。返回的数据始终经过认证；持续损坏会在预算耗尽后报错。
+- 同次读取尝试复用认证索引的文件描述符，catalog replay 使用至多 64 KiB 预读；失败后重新打开文件。依赖遍历改用去重工作队列，支持深层依赖图。
+- 读取 payload 前检查 tensor dtype、shape 和长度。新 tensor 使用 4 MiB checksum chunk，旧数据沿用存储的 chunk 大小。checkpoint 重新激活在 catalog 锁外认证全部可达 payload，payload scratch 至多 1 MiB，随后在锁内重新检查所有权和 tombstone。
+- JSON 有限浮点数在序列化／恢复中精确往返。拒绝遍历长度不符或吞掉 callback 错误的原生 payload provider。
+
+### GC 与发布安全
+
+- unlink 后重试目录持久化屏障，包括文件已不存在或父目录缺失的情况。共享父目录的屏障合并执行，持久删除完成后才记录回收回执。永久保留 tombstone；冷缓存 retain 遇到已回收的根或依赖时，在读取缺失 payload 前返回 `InvalidReference`。
+- 保护规范路径及别名、其他队列、活跃 reader、checkpoint、producer continuation 和未完成 publication。公共 owner API 拒绝内部 `queue:`、`publication:` 名字。离线清理保留控制文件，共享池发现结果不确定时拒绝继续删除。
+- 发布准备、同步、staging、sealing 失败时保留依赖保护和重试身份。补齐缺失的祖先目录屏障，writer 复用前回滚未发布尾部，并封存已完成的 standalone reservation 以便 GC。GC hook 报错且已影响 WAL 时，后续写入必须先重新恢复。
+
+### Writer 退休
+
+- 新增显式 `retire_writer(..., policy="recover" | "abandon")`，通过持久 fence、操作登记和可复用恢复回执处理旧 writer。recover 先保护完整结果再释放准备所有权；abandon 保留已有 queue、reader 和 staging 根。仍持有 gate 的 writer 返回 `WriterBusy`，已被 fence 的 writer 无法恢复写入。退休依赖已列明的锁、fence 可见性和在途 I/O 契约，不能仅凭超时判断进程死亡。
+- writer 正执行 callback 时，metrics、seal、close 立即返回 busy，不再等待。无法确认来源的历史 preparation owner 继续受保护，并报告为独立恢复事项。
+
+### 兼容与迁移
+
+- packed record 和 WAL 字节 framing 不变，旧 catalog 记录仍可重放。新增 queue staging handoff 事件需要新版 coordinator：一旦写入这些事件，不要降级 queue writer。依赖规范路径／别名保护前，应升级全部 GC 参与者；旧 collector 仍可能删除通过别名持有的文件。混用版本不具备统一的清理／重试保证；历史泄漏和已回收的旧 manifest 不会自动修复。见[格式兼容说明](docs/FORMAT_zh.md#队列-staging-交接凭据)。
+- Rust 调用者需改用 coordinator 只读 accessor（`state()`、`journal()`、`store()`、`limits()`、`epoch()`），通过独立 `Store` 发布，并将显式 `&mut Catalog` callback 改为 `&mut LockedCatalog<'_>`。`Config::gc_enabled` 返回 `Result<bool>`。现有 Python 调用签名保留，另增加退休 API。
+- 旧版本已舍入的浮点数无法还原；旧请求 hash 和使用不同 tensor chunk 策略生成的重试可能在升级后冲突。保留重试身份，并检查[存储格式规则](docs/FORMAT_zh.md)。catalog 依赖关系和回执暂未实现压缩，元数据会持续增长。
+
+### 已知性能回退
+
+- 相同 JuiceFS 工作负载、启用在线 GC 时，相比 0.1.3，写吞吐中位数下降 20.7%，接受 64 个任务的耗时增加 34.8%；读取和同步 WAL 追加未见同量级下降。此次简短对照每个构建只有两轮，缓存未清空；尚未做 profile，不能归因于某项安全协议或验证相关重构。见[完整样本与构建哈希](verification/measurements/20261026-release-comparison.json)。
+
+### CI 与验证边界
+
+- 扫描源码分发包与 wheel 内容（包括原生库），检查本机路径和可识别的凭据。编译时 remap Rust 路径，避免发布二进制携带本机源码、用户目录和工具链位置；CI 上传产物前检查，发现问题即拒绝，报告不输出命中的秘密内容。
+- release 构建和发布以前置检查为条件，包括固定版本的 TLA+／Verus、语义负例、environment contract 审计、Rust／Python 测试、格式和 Clippy。验证目录按协议、WAL、GC、存储与离线恢复组织，环境假设可独立审查。
+- 本次发布冻结新增形式化验证。已集成证明覆盖具体生产函数和模型；完整 retain／reactivation、跨日志恢复、认证与活性组合延期，以回归和故障注入测试覆盖。见[本次发布范围与边界](docs/FORMAL_VERIFICATION_zh.md#本次发布的验证范围)。测试通过不等于这些证明已完成，历史性能测量也不能代表当前构建的吞吐或延迟。
+
 ## 0.1.3
 
 - 已发布 extent 的文件头在任意位置出现暂时零值时都会触发重试，支持部分字节以及不连续位置尚不可见的情况。此前只有整个文件头为零时才会触发这类重试。重试上限和 checksum 校验保持不变；其他错误的文件头字节仍会立即报错。

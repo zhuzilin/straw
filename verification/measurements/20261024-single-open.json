@@ -1,0 +1,1579 @@
+{
+  "date_utc": "2026-10-24T02:16:40.090056+00:00",
+  "kind": "reuse_inspected_read_descriptor",
+  "passed": true,
+  "production_changed": true,
+  "changes": [
+    "Transfer an inspected file through ordinary and cold-session frame reads; warm sessions open fresh files with authenticated indexes. No inspected data-file descriptor is cached between calls or retries.",
+    "Use the Verus-proved frame_position helper before seeking; it rejects unrepresentable extent addresses and frames outside their extent.",
+    "Model successful descriptor acquisitions separately from authentication, release and retry. Repeated open is a cost-policy counterexample, not a newly discovered data-correctness defect."
+  ],
+  "validation": {
+    "passed": true,
+    "environment_registry_sha256": "3109aeaaa07cbedfab37569b28961ac9cb9ddea7991b76e2a64677bd28b948a8",
+    "contracts": 39,
+    "consumers": 38,
+    "component_layers": 19,
+    "tla_cases": 302,
+    "tla_kinds": {
+      "positive": 123,
+      "algorithm_negative": 157,
+      "environment_negative": 22
+    },
+    "tla_temporal_negatives": 15,
+    "previous_tla_cases_unchanged": 291,
+    "new_tla_cases": {
+      "read_attempt": {
+        "states": 1039,
+        "kind": "positive",
+        "passed": true
+      },
+      "read_attempt_session": {
+        "states": 1039,
+        "kind": "positive",
+        "passed": true
+      },
+      "read_attempt_cached": {
+        "states": 1092,
+        "kind": "positive",
+        "passed": true
+      },
+      "read_attempt_corrupt": {
+        "states": 1048,
+        "kind": "positive",
+        "passed": true
+      },
+      "read_attempt_exhausted": {
+        "states": 2848,
+        "kind": "positive",
+        "passed": true
+      },
+      "read_attempt_double_open": {
+        "states": 514,
+        "kind": "algorithm_negative",
+        "passed": true
+      },
+      "read_attempt_hold_on_retry": {
+        "states": 515,
+        "kind": "algorithm_negative",
+        "passed": true
+      },
+      "read_attempt_skip_envelope": {
+        "states": 770,
+        "kind": "algorithm_negative",
+        "passed": true
+      },
+      "read_attempt_skip_payload": {
+        "states": 770,
+        "kind": "algorithm_negative",
+        "passed": true
+      },
+      "read_attempt_stall": {
+        "states": 780,
+        "kind": "algorithm_negative",
+        "passed": true
+      },
+      "environment_read_attempt_visibility_lies": {
+        "states": 1042,
+        "kind": "environment_negative",
+        "passed": true
+      }
+    },
+    "verus_positive": 119,
+    "verus_semantic_negatives": 105,
+    "integration": {
+      "python": 782,
+      "native": 40,
+      "wheel": {
+        "wheel": "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl",
+        "sha256": "1eb967e9e34e4513983151846771a36aa9b96a47fb03c807fd5dee29b27d6bfa",
+        "version": "0.1.3",
+        "native_extension": "straw/_native.cpython-312-x86_64-linux-gnu.so",
+        "passed": true,
+        "runtime_dependencies": "existing NumPy/PyTorch reused; no Rust or maturin on test PATH",
+        "checks": [
+          "no local source paths in generated metadata",
+          "binary-only install",
+          "installed-package import",
+          "records",
+          "tensors/COW",
+          "queue/GC",
+          "multiprocess crash/recovery",
+          "README Python examples",
+          "local benchmark/GC",
+          "trace profile"
+        ],
+        "benchmark_payload_bytes": 8257536,
+        "benchmark_publications": 42,
+        "benchmark_data_files": 6,
+        "benchmark_root_removed": true,
+        "core_and_protocol_checks": true
+      }
+    },
+    "latency": {
+      "hosts": 4,
+      "calls": 38400,
+      "gc_files": 8,
+      "gc_bytes": 268471976,
+      "groups": {
+        "client-1/4k/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 514536,
+            "p95": 1191190,
+            "p99": 4327186,
+            "max": 13615977
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 255757,
+            "p95": 294289,
+            "p99": 670490,
+            "max": 2386223
+          }
+        },
+        "client-1/4k/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 350633,
+            "p95": 699092,
+            "p99": 2909934,
+            "max": 12752505
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 224227,
+            "p95": 252010,
+            "p99": 469299,
+            "max": 1474293
+          }
+        },
+        "client-1/4k/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 548399,
+            "p95": 1148240,
+            "p99": 6203239,
+            "max": 21344914
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 271557,
+            "p95": 296363,
+            "p99": 381470,
+            "max": 916152
+          }
+        },
+        "client-1/4k/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 372155,
+            "p95": 701379,
+            "p99": 3896035,
+            "max": 21273133
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 239404,
+            "p95": 261633,
+            "p99": 302041,
+            "max": 627509
+          }
+        },
+        "client-1/4k/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 613088,
+            "p95": 3432329,
+            "p99": 6899237,
+            "max": 36737060
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 315583,
+            "p95": 344666,
+            "p99": 460992,
+            "max": 918054
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 6,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-1/4k/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 418839,
+            "p95": 2127996,
+            "p99": 8684823,
+            "max": 16779467
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 272842,
+            "p95": 306390,
+            "p99": 385092,
+            "max": 705587
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 6,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-1/64m/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3830839,
+            "p95": 9392534,
+            "p99": 21174820,
+            "max": 33181362
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3468248,
+            "p95": 3527968,
+            "p99": 3752807,
+            "max": 7685521
+          }
+        },
+        "client-1/64m/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3651975,
+            "p95": 8513640,
+            "p99": 14190819,
+            "max": 28443815
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3459038,
+            "p95": 3512612,
+            "p99": 4009152,
+            "max": 7562915
+          }
+        },
+        "client-1/64m/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3901459,
+            "p95": 12168983,
+            "p99": 23571008,
+            "max": 125683078
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3479387,
+            "p95": 3952574,
+            "p99": 5685747,
+            "max": 7023764
+          }
+        },
+        "client-1/64m/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3679107,
+            "p95": 9099302,
+            "p99": 28046551,
+            "max": 53236582
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3446680,
+            "p95": 4982074,
+            "p99": 6003506,
+            "max": 7853846
+          }
+        },
+        "client-1/64m/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3863900,
+            "p95": 8951827,
+            "p99": 18519354,
+            "max": 49405868
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3534108,
+            "p95": 3573834,
+            "p99": 3723010,
+            "max": 6396584
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 9,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-1/64m/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3700112,
+            "p95": 9952997,
+            "p99": 20298611,
+            "max": 61022980
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3496652,
+            "p95": 3549605,
+            "p99": 3789936,
+            "max": 10789934
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 9,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-2/4k/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 508311,
+            "p95": 811105,
+            "p99": 5652117,
+            "max": 12458727
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 247240,
+            "p95": 275030,
+            "p99": 393334,
+            "max": 821124
+          }
+        },
+        "client-2/4k/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 351678,
+            "p95": 622166,
+            "p99": 4703279,
+            "max": 10104423
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 220128,
+            "p95": 242989,
+            "p99": 382069,
+            "max": 596068
+          }
+        },
+        "client-2/4k/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 533079,
+            "p95": 1902261,
+            "p99": 5417831,
+            "max": 32855486
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 267555,
+            "p95": 308291,
+            "p99": 415440,
+            "max": 839077
+          }
+        },
+        "client-2/4k/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 372070,
+            "p95": 554430,
+            "p99": 4233984,
+            "max": 8234924
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 240943,
+            "p95": 269819,
+            "p99": 331792,
+            "max": 620753
+          }
+        },
+        "client-2/4k/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 559994,
+            "p95": 1710503,
+            "p99": 5201514,
+            "max": 37473841
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 300177,
+            "p95": 325424,
+            "p99": 412412,
+            "max": 814076
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 6,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-2/4k/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 400339,
+            "p95": 689702,
+            "p99": 5437100,
+            "max": 26047489
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 268256,
+            "p95": 305858,
+            "p99": 454534,
+            "max": 965795
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 6,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-2/64m/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3756946,
+            "p95": 8838355,
+            "p99": 14695468,
+            "max": 34236753
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3443260,
+            "p95": 3497800,
+            "p99": 3656120,
+            "max": 5500383
+          }
+        },
+        "client-2/64m/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3591125,
+            "p95": 7678890,
+            "p99": 16476780,
+            "max": 76990233
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3431333,
+            "p95": 3476979,
+            "p99": 3651065,
+            "max": 5457152
+          }
+        },
+        "client-2/64m/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3806305,
+            "p95": 12364323,
+            "p99": 20359234,
+            "max": 67974068
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3448696,
+            "p95": 3651100,
+            "p99": 3791775,
+            "max": 5698588
+          }
+        },
+        "client-2/64m/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3620051,
+            "p95": 10466009,
+            "p99": 22159681,
+            "max": 63973216
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3420759,
+            "p95": 3621697,
+            "p99": 3795026,
+            "max": 5475533
+          }
+        },
+        "client-2/64m/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3827952,
+            "p95": 10536558,
+            "p99": 24979643,
+            "max": 63965809
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3493949,
+            "p95": 3865748,
+            "p99": 5289238,
+            "max": 6787581
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 9,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-2/64m/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3664356,
+            "p95": 10075682,
+            "p99": 25011304,
+            "max": 46624256
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3454849,
+            "p95": 4356235,
+            "p99": 5448270,
+            "max": 8403600
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 9,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-3/4k/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 524049,
+            "p95": 950160,
+            "p99": 4811795,
+            "max": 19001167
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 251386,
+            "p95": 279503,
+            "p99": 375426,
+            "max": 872724
+          }
+        },
+        "client-3/4k/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 360447,
+            "p95": 742805,
+            "p99": 5006987,
+            "max": 23337760
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 226629,
+            "p95": 249022,
+            "p99": 289148,
+            "max": 605727
+          }
+        },
+        "client-3/4k/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 522119,
+            "p95": 1082043,
+            "p99": 5078150,
+            "max": 12970288
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 262962,
+            "p95": 301260,
+            "p99": 455296,
+            "max": 962445
+          }
+        },
+        "client-3/4k/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 359127,
+            "p95": 712252,
+            "p99": 5044644,
+            "max": 47705676
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 232339,
+            "p95": 266545,
+            "p99": 397931,
+            "max": 648028
+          }
+        },
+        "client-3/4k/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 574342,
+            "p95": 3998184,
+            "p99": 9883655,
+            "max": 15445297
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 300072,
+            "p95": 336025,
+            "p99": 457037,
+            "max": 908972
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 6,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-3/4k/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 400611,
+            "p95": 805582,
+            "p99": 4898208,
+            "max": 11135381
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 267660,
+            "p95": 298532,
+            "p99": 389337,
+            "max": 642233
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 6,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-3/64m/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3719066,
+            "p95": 8960715,
+            "p99": 17433817,
+            "max": 77135030
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3402339,
+            "p95": 3612580,
+            "p99": 3784662,
+            "max": 5388138
+          }
+        },
+        "client-3/64m/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3559144,
+            "p95": 7654173,
+            "p99": 13751024,
+            "max": 27105833
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3385138,
+            "p95": 3584728,
+            "p99": 3728486,
+            "max": 5815551
+          }
+        },
+        "client-3/64m/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3749449,
+            "p95": 11574260,
+            "p99": 19315674,
+            "max": 64084521
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3407993,
+            "p95": 3609338,
+            "p99": 3677357,
+            "max": 5396760
+          }
+        },
+        "client-3/64m/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3596811,
+            "p95": 10260377,
+            "p99": 22003326,
+            "max": 126826086
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3394335,
+            "p95": 3599839,
+            "p99": 3650993,
+            "max": 4962792
+          }
+        },
+        "client-3/64m/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3807288,
+            "p95": 10791835,
+            "p99": 28029442,
+            "max": 61061178
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3456594,
+            "p95": 4286856,
+            "p99": 5733155,
+            "max": 6980533
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 9,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-3/64m/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3576528,
+            "p95": 7668698,
+            "p99": 15850571,
+            "max": 59271995
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3420347,
+            "p95": 3511544,
+            "p99": 3793412,
+            "max": 5613783
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 9,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-4/4k/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 542193,
+            "p95": 2263017,
+            "p99": 6361487,
+            "max": 25493809
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 258311,
+            "p95": 301828,
+            "p99": 475565,
+            "max": 1936018
+          }
+        },
+        "client-4/4k/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 381893,
+            "p95": 602132,
+            "p99": 4483220,
+            "max": 12376765
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 237332,
+            "p95": 269423,
+            "p99": 386231,
+            "max": 628106
+          }
+        },
+        "client-4/4k/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 528824,
+            "p95": 795791,
+            "p99": 3918096,
+            "max": 13712703
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 267623,
+            "p95": 301245,
+            "p99": 426381,
+            "max": 859906
+          }
+        },
+        "client-4/4k/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 371044,
+            "p95": 839528,
+            "p99": 5003299,
+            "max": 18631916
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 242173,
+            "p95": 275146,
+            "p99": 395905,
+            "max": 1187038
+          }
+        },
+        "client-4/4k/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 594943,
+            "p95": 3152914,
+            "p99": 8366594,
+            "max": 29328294
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 310426,
+            "p95": 349844,
+            "p99": 468379,
+            "max": 877950
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 6,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-4/4k/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 408635,
+            "p95": 580328,
+            "p99": 3748825,
+            "max": 20945372
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 274837,
+            "p95": 313533,
+            "p99": 433755,
+            "max": 738266
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 6,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4096,
+            "p95": 4096,
+            "p99": 4096,
+            "max": 4096
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 5222,
+            "p95": 5222,
+            "p99": 5222,
+            "max": 5222
+          }
+        },
+        "client-4/64m/plain/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3795243,
+            "p95": 8696658,
+            "p99": 16661036,
+            "max": 29960763
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3471307,
+            "p95": 3597348,
+            "p99": 3721783,
+            "max": 7258243
+          }
+        },
+        "client-4/64m/plain/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3590801,
+            "p95": 7934253,
+            "p99": 14847481,
+            "max": 76965079
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3432907,
+            "p95": 3516236,
+            "p99": 3685804,
+            "max": 5340732
+          }
+        },
+        "client-4/64m/stages/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3854018,
+            "p95": 11884317,
+            "p99": 27364124,
+            "max": 67503704
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3472125,
+            "p95": 3630369,
+            "p99": 3734987,
+            "max": 6143031
+          }
+        },
+        "client-4/64m/stages/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3628630,
+            "p95": 10441828,
+            "p99": 19208122,
+            "max": 39891281
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3439943,
+            "p95": 3503987,
+            "p99": 3716348,
+            "max": 5364621
+          }
+        },
+        "client-4/64m/libc/baseline": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3910940,
+            "p95": 11773737,
+            "p99": 30127697,
+            "max": 61287588
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3540856,
+            "p95": 5163076,
+            "p99": 6382837,
+            "max": 7986060
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 2,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 2,
+                "read": 9,
+                "statx": 5
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        },
+        "client-4/64m/libc/fixed": {
+          "wall_ns": {
+            "n": 800,
+            "p50": 3676586,
+            "p95": 9882497,
+            "p99": 25344363,
+            "max": 49959038
+          },
+          "cpu_ns": {
+            "n": 800,
+            "p50": 3481310,
+            "p95": 4148534,
+            "p99": 5810332,
+            "max": 7801560
+          },
+          "operation_signatures": [
+            {
+              "counts": {
+                "close": 1,
+                "lseek64": 6,
+                "lstat64": 4,
+                "open64": 1,
+                "read": 9,
+                "statx": 3
+              },
+              "calls": 800
+            }
+          ],
+          "checked_bytes": {
+            "n": 800,
+            "p50": 4194304,
+            "p95": 4194304,
+            "p99": 4194304,
+            "max": 4194304
+          },
+          "libc_read_bytes": {
+            "n": 800,
+            "p50": 4197460,
+            "p95": 4197460,
+            "p99": 4197460,
+            "max": 4197460
+          }
+        }
+      },
+      "pooled_wall_ns": {
+        "4k/plain/baseline": {
+          "n": 3200,
+          "p50": 521361,
+          "p95": 1086299,
+          "p99": 5438970,
+          "max": 25493809
+        },
+        "4k/plain/fixed": {
+          "n": 3200,
+          "p50": 360706,
+          "p95": 655545,
+          "p99": 4494148,
+          "max": 23337760
+        },
+        "4k/stages/baseline": {
+          "n": 3200,
+          "p50": 533153,
+          "p95": 1082043,
+          "p99": 5183098,
+          "max": 32855486
+        },
+        "4k/stages/fixed": {
+          "n": 3200,
+          "p50": 368618,
+          "p95": 676205,
+          "p99": 4793954,
+          "max": 47705676
+        },
+        "4k/libc/baseline": {
+          "n": 3200,
+          "p50": 584320,
+          "p95": 3432329,
+          "p99": 8177785,
+          "max": 37473841
+        },
+        "4k/libc/fixed": {
+          "n": 3200,
+          "p50": 407792,
+          "p95": 810037,
+          "p99": 5163377,
+          "max": 26047489
+        },
+        "64m/plain/baseline": {
+          "n": 3200,
+          "p50": 3774750,
+          "p95": 8929794,
+          "p99": 17014717,
+          "max": 77135030
+        },
+        "64m/plain/fixed": {
+          "n": 3200,
+          "p50": 3602050,
+          "p95": 7981939,
+          "p99": 14976916,
+          "max": 76990233
+        },
+        "64m/stages/baseline": {
+          "n": 3200,
+          "p50": 3822796,
+          "p95": 12053056,
+          "p99": 20795214,
+          "max": 125683078
+        },
+        "64m/stages/fixed": {
+          "n": 3200,
+          "p50": 3633051,
+          "p95": 10198719,
+          "p99": 22538335,
+          "max": 126826086
+        },
+        "64m/libc/baseline": {
+          "n": 3200,
+          "p50": 3860718,
+          "p95": 10516072,
+          "p99": 24913426,
+          "max": 63965809
+        },
+        "64m/libc/fixed": {
+          "n": 3200,
+          "p50": 3661962,
+          "p95": 9139579,
+          "p99": 21684610,
+          "max": 61022980
+        }
+      },
+      "wheels": {
+        "baseline": {
+          "native_sha256": "c3b2994ed36d249f505b1e3eedeeca9d01db6b75975cd1d1bec40deff2436928",
+          "tensor_sha256": "38f49f7e6e7b39d4e2517819a55e8113b268d2e1824237612fce1b5d6fe2750b",
+          "store_sha256": "1d45d5d15fd81ad1fe1dd10cce945debda6a6803b70502f76db2fcc976ca7a8c"
+        },
+        "fixed": {
+          "native_sha256": "32fcb1b2f85895ac1dd13bc03b353f948cf2caa2e712e15c2528f9723eeec47d",
+          "tensor_sha256": "38f49f7e6e7b39d4e2517819a55e8113b268d2e1824237612fce1b5d6fe2750b",
+          "store_sha256": "1d45d5d15fd81ad1fe1dd10cce945debda6a6803b70502f76db2fcc976ca7a8c"
+        }
+      }
+    },
+    "large": {
+      "smoke": {
+        "binary_sha256": "760ccb38d02d37d69d11c4df16ef344e4c44ac3a35780bedab43476cf60f2a03",
+        "payload_bytes": 33554469,
+        "chunk_bytes": 4096,
+        "read_summary": {
+          "seconds_including_ssh_oracle_and_ranges": 1.1811743378639221,
+          "full_payload_bytes": 33554469,
+          "total_returned_bytes": 33599760,
+          "total_checked_bytes": 33738863,
+          "full_windows": 1,
+          "range_requests": 48,
+          "empty_ranges": 13,
+          "full_window_native_seconds": null,
+          "nonempty_range_native_seconds": {
+            "n": 35,
+            "p50": 0.001601695,
+            "p95": 0.015665931,
+            "p99": 0.071563675
+          },
+          "oracle_seconds_summed": 0.017107566,
+          "full_payload_mib_s_including_all_checks": 27.091712256312405
+        },
+        "preparation_seconds": 0.040741747,
+        "publication_seconds": 0.408361975,
+        "publication_mib_s": 78.3619368232062,
+        "file_bytes": 34653048,
+        "checksum_count": 8193,
+        "writer_rss_kib": 8356,
+        "cleanup": {
+          "gc": {
+            "open_packs": 0,
+            "owners": 0,
+            "reclaimed_bytes": 34653048,
+            "reclaimed_files": 1,
+            "retained_packs": 0,
+            "tombstones": 1
+          },
+          "passed": true
+        },
+        "reader_rss_kib": {
+          "client-1": 41060,
+          "client-2": 7332,
+          "client-3": 8228,
+          "client-4": 8100
+        }
+      },
+      "large": {
+        "binary_sha256": "760ccb38d02d37d69d11c4df16ef344e4c44ac3a35780bedab43476cf60f2a03",
+        "payload_bytes": 100000000000,
+        "chunk_bytes": 4194304,
+        "read_summary": {
+          "seconds_including_ssh_oracle_and_ranges": 55.238504245877266,
+          "full_payload_bytes": 100000000000,
+          "total_returned_bytes": 100000094695,
+          "total_checked_bytes": 100330158080,
+          "full_windows": 373,
+          "range_requests": 96,
+          "empty_ranges": 25,
+          "full_window_native_seconds": {
+            "n": 372,
+            "p50": 0.416575184,
+            "p95": 0.497842273,
+            "p99": 0.546046033
+          },
+          "nonempty_range_native_seconds": {
+            "n": 71,
+            "p50": 0.007080519,
+            "p95": 0.024514213,
+            "p99": 0.066614269
+          },
+          "oracle_seconds_summed": 50.255923943,
+          "full_payload_mib_s_including_all_checks": 1726.4665823702633
+        },
+        "preparation_seconds": 112.334829343,
+        "publication_seconds": 352.090759792,
+        "publication_mib_s": 270.86036480185953,
+        "file_bytes": 100003195567,
+        "checksum_count": 23842,
+        "writer_rss_kib": 18080,
+        "cleanup": {
+          "gc": {
+            "open_packs": 0,
+            "owners": 0,
+            "reclaimed_bytes": 100003195567,
+            "reclaimed_files": 1,
+            "retained_packs": 0,
+            "tombstones": 1
+          },
+          "passed": true
+        },
+        "reader_rss_kib": {
+          "client-1": 280736,
+          "client-2": 280776,
+          "client-3": 280720,
+          "client-4": 280808
+        }
+      }
+    }
+  },
+  "environment_registry_sha256": "3109aeaaa07cbedfab37569b28961ac9cb9ddea7991b76e2a64677bd28b948a8",
+  "source_binding": {
+    "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+    "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+    "rust/consumption.rs": "4de026dcdf77a27bac0c3144e6edb9e92c5b7beaf9538d40b844730ea0801cc9",
+    "rust/coordinator.rs": "76ae5d524ea4416c0539b58e0882bbf08eb3dcbea6e5995a10a0ab20fa218968",
+    "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+    "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+    "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+    "rust/gc.rs": "51c878f7929f29197f579575e5ff087cde90e9c3307e0e1774bf96fa1fce0ff3",
+    "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+    "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+    "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+    "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+    "rust/lib.rs": "0b6c70a9f62ef57329af0137536a8ed2e668a38884fc289b1023f76704a8bef8",
+    "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+    "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+    "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+    "rust/python.rs": "b50458887d207dec15563ec1fd51de0d5d4afa8a68771a172eff50a5c797a909",
+    "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+    "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+    "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+    "rust/store.rs": "f70b03dfcbe3aa705b6191c229093603ce5f3701748dfa17325afe7586519b6b",
+    "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+    "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+    "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+    "src/straw/__init__.py": "67f0f297afdfe971a786e9cfe17e296fa317af37e042d5a708a36de77cd091ee",
+    "src/straw/backend.py": "5783b9cadd23d1287e01c0bf0a4a27cee0243221878f4266c445a16d3423f436",
+    "src/straw/benchmark.py": "866d0c747f528c3496e9352ca624c08c2080d5918d64ba95d8478247d385fcdf",
+    "src/straw/coordinator.py": "b9aede16d0441212ae959d46a595dd6a8420164a843f2045455730912588cbf8",
+    "src/straw/errors.py": "a2286ad7a09082d977553575fcc80e68c11d4aae473dabde7db10868e28d93ad",
+    "src/straw/inspect.py": "6260fed0eed30bc35493a8eb4876526d9b451744b1c2f0bab3bd2fcf23973329",
+    "src/straw/journal.py": "67cf2563dd5b9852230cefb6f9e92d1919a381aedcd9b50cbbdbe5b3fb499886",
+    "src/straw/protocol.py": "1145127cc19329468a625dc37fad2c869a85a82cf3d876fa8a695449747f0ca1",
+    "src/straw/reporting.py": "52e30218cdca76d0389f50eb5e5b843105ebd84fbcffaec37a905a4421912c23",
+    "src/straw/rpc.py": "395e63859f4d2e6888db6d18600a38cf3c77b6f56d1cb66a4d86211b075354bb",
+    "src/straw/store.py": "1d45d5d15fd81ad1fe1dd10cce945debda6a6803b70502f76db2fcc976ca7a8c",
+    "src/straw/tensor.py": "38f49f7e6e7b39d4e2517819a55e8113b268d2e1824237612fce1b5d6fe2750b",
+    "src/straw/tracing.py": "ddcaa86dee95d2faa969183c318b8f8e53568454afb18f33d53e2d1119ea0aac",
+    "Cargo.toml": "0130120d0ea80be2c062ae80f4c7889fe844ffacd58b38e55c704a9f5a694e96",
+    "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323"
+  },
+  "development_runs": [
+    "Initial ReadAttempt syntax failed parsing because Boolean assignment expressions needed parentheses. The failed run is retained separately; only focused-v2 and full semantic runs count as validation."
+  ],
+  "limitations": [
+    "Verus proves actual frame-position arithmetic for all u64 inputs. Descriptor/index binding, cache-key comparison, Drop/syscalls and full I/O refinement remain unproved; native tests and call-count probes provide execution evidence.",
+    "ReadAttempt abstracts a successful descriptor acquisition. open_committed can perform five File::open calls on NotFound with 10/20/40/80 ms sleeps. Those lookup retries and other open errors are outside the finite attempt model. Neither its 150 ms sleep sum nor the 3.85-second visibility sleep sum is an API deadline.",
+    "Four-host latency runs use each host's own private record, two persistent wheel readers, serial ABBA batches and separate plain/stage/libc modes. Every call compares the first 32 bytes; repeated data and unevicted caches are not a random-position or physical-backend-bandwidth test.",
+    "Diagnostic libc timing changes timing and covers selected functions/private paths only. It does not count backend RPCs; wall minus thread CPU includes scheduling and other waiting.",
+    "Latency comparisons run after this round's proof, integration and 100 GB jobs finish; host-wide background load remains uncontrolled. Quantile differences are observations, not SLAs or environment bounds.",
+    "The 32 MiB + 37-byte four-host smoke and 100 GB native workflow use position-dependent bytes, a full returned-byte oracle and independent Python prefix/suffix checks. Python also regenerates every smoke checksum. The 100 GB payload remains the single-write scale cap; no new physical TB run is claimed.",
+    "100 GB preparation/publication overlaps verification work during part of the writer lifetime, including smoke-oracle checks. Its 256 MiB request windows use a session, so this optimization removes only the initial second open per reader; do not attribute bulk throughput differences solely to descriptor reuse.",
+    "Pooled plain latency improves, but two per-host size groups have worse p99 and diagnostic modes are mixed. The 100 GB nonempty small-range p99 is 66.614 ms (n=71, the sample maximum), above the prior granularity run at 25.391 ms. This tail has no syscall-stage attribution and does not establish a causal regression or a fixed bound.",
+    "Data is reclaimed through normal GC after successful reader exits, before removing private metadata and remote programs. No full-system bug-free or recovery-refinement claim follows."
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

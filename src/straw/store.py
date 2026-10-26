@@ -17,9 +17,11 @@ from .protocol import Publication, Record, RecordRef, RecordSetRef, SegmentRef, 
 from .tracing import emit
 
 
-def _read_tensor_range(native, root, ref, start, stop):
+def _read_tensor_range(native, root, ref, start, stop, expected=None):
     started = time.monotonic()
-    envelope, payload, checked = native.read_tensor_range(encode(asdict(ref)).decode(), start, stop)
+    envelope, payload, checked = native.read_tensor_range(
+        encode(asdict(ref)).decode(), start, stop, None if expected is None else encode(expected).decode()
+    )
     emit(
         "read_range",
         root=root,
@@ -68,8 +70,8 @@ class _ReadSession(_RecordReader):
         self.backend, self.run_id = store.backend, store.run_id
         self._native = store._native.read_session()
 
-    def read_tensor_range(self, ref, start, stop):
-        return _read_tensor_range(self._native, self.backend.root, ref, start, stop)
+    def read_tensor_range(self, ref, start, stop, *, expected=None):
+        return _read_tensor_range(self._native, self.backend.root, ref, start, stop, expected)
 
     def envelope(self, ref):
         return json.loads(self._native.envelope(encode(asdict(ref)).decode()))
@@ -142,6 +144,40 @@ class SharedFilesystemStore(_RecordReader):
         """Seal the current pack without closing this writer."""
         self._native.seal(self._fault)
 
+    @property
+    def writer_id(self):
+        """Persistent incarnation used to explicitly retire this writer."""
+        return self._native.writer_id()
+
+    def retire_writer(self, writer_id, *, policy="recover"):
+        """Fence an exact incarnation and reconcile its unfinished publications.
+
+        A busy writer raises WriterBusy. Recovery returns staged results;
+        explicit abandonment preserves existing queue, reader and staging roots.
+        The same writer cannot resume after retirement. Create a fresh writer.
+        """
+        values = json.loads(self._native.retire_writer(writer_id, policy, self._fault))
+        return [
+            RecordSetRef.from_dict(value) if "manifest" in value else RecordRef.from_dict(value) for value in values
+        ]
+
+    def publication_receipt(self, writer_id, *, api, submission_id):
+        """Look up a recorded result, including after reply loss or retirement.
+
+        ``api`` is ``records`` (write_records), ``record_set``, or ``publish``
+        (publish/publish_many). Returns the latest recorded result list for the
+        exact writer/API/submission ID, or None when no result was recorded.
+        This only reads the receipt: it does not renew data protection, so old
+        references may already have been consumed and collected. A writer
+        holding the gate raises WriterBusy; fenced writers can still be queried.
+        """
+        values = json.loads(self._native.publication_receipt(writer_id, api, submission_id, self._fault))
+        if values is None:
+            return None
+        return [
+            RecordSetRef.from_dict(value) if "manifest" in value else RecordRef.from_dict(value) for value in values
+        ]
+
     def _storage(self, method, **values):
         return json.loads(self._native.storage(method, encode(values).decode(), self._fault))
 
@@ -172,7 +208,7 @@ class SharedFilesystemStore(_RecordReader):
             self.release(owner)
 
     def collect_garbage(self):
-        """Unlink only sealed packs with no durable owner; retry old tombstones."""
+        """Reclaim unowned sealed packs; retry deletions without a durable receipt."""
         return self._storage("collect")
 
     def _inputs(self, records):
@@ -264,9 +300,9 @@ class SharedFilesystemStore(_RecordReader):
         )
         return bytearray(payload)
 
-    def read_tensor_range(self, ref, start, stop):
+    def read_tensor_range(self, ref, start, stop, *, expected=None):
         """Return the authenticated envelope and touched tensor chunk bytes."""
-        return _read_tensor_range(self._native, self.backend.root, ref, start, stop)
+        return _read_tensor_range(self._native, self.backend.root, ref, start, stop, expected)
 
     @contextlib.contextmanager
     def read_session(self):

@@ -30,11 +30,11 @@ store = SharedFilesystemStore(
 
 ## 进程与线程并发
 
-已发布的 extent 不可变，但共享文件系统的 reader 可能短暂先看到增长后的文件大小、后看到追加的文件头。对于文件长度尚不足或 12 字节文件头全零的情况，native reader 会关闭文件，依次等待 100、250、500、1000、2000 ms 后重新打开，再进行原有校验。持续失败仍报错；非零的坏文件头和 checksum 错误不走此可见性重试。该处理覆盖 store、read session 和依赖校验等入口，正常读取不增加 I/O，应用无需再叠加另一层 CorruptData 重试。
+已发布的 extent 不可变，但共享文件系统的 reader 可能先看到长度或 header，后看到其他已提交字节。短读、header 的全零/部分零空缺，以及 footer/索引/envelope/payload/chunk 校验失败，会重新打开文件重试。单次 extent/record/range 读取的全部校验阶段共用五次等待：100、250、500、1000、2000 ms。返回的 record/chunk 仍必须通过认证；持续失败返回 `CorruptData`。非零坏 header、身份/schema 错误与其他 I/O 错误不进入此重试。因此，checksum 损坏可能在完整重试窗口后才报告。等待时间不构成文件系统 I/O 截止时间，依赖遍历可能执行多次分别受限的读取。此行为覆盖 store 和 read session 入口，正常读取没有额外 I/O。参见 [TLA+ 规范](FORMAL_VERIFICATION_zh.md)，不要在应用层叠加无界的损坏错误重试。
 
 API 是同步的，straw 不会启动 I/O 进程池。应用可从多个进程、多台机器访问同一个池。每个 writer 需要独立的 store 实例和 pack 写入流，并在多次发布之间复用实例。不要将可变 store/coordinator 对象跨 fork 继承后继续使用。
 
-Rust 在 native I/O、checksum 和日志操作期间释放 GIL，Python 线程可并行执行这些操作。Python 序列化、张量转换和输入缓冲区复制仍有开销。每个 store 同时只允许一个写操作；同实例的重叠写入会报 `ResourceLimitExceeded`，因此需由调用方串行化，或为每个 writer 创建独立实例。引用受到保护期间，reader 可以并发读取。
+Rust 在 native I/O、checksum 和日志操作期间释放 GIL，Python 线程可并行执行这些操作。Python 序列化、张量转换和输入缓冲区复制仍有开销。每个 store 同时只允许一个写操作；同实例的重叠写入会报 `ResourceLimitExceeded`，因此需由调用方串行化，或为每个 writer 创建独立实例。`metrics`、`seal()` 和 `close()` 也使用同一非阻塞 writer 准入；写入或另一 writer 操作进行时，它们会返回 `ResourceLimitExceeded`，调用方应等该操作返回后重试。这样，同步 fault callback 或负责放行 callback 的另一线程不会等待已被 writer 占有的锁。被拒绝的 close／seal 不改变 writer。引用受到保护期间，reader 可以并发读取；catalog／coordinator／journal callback 尚不支持一般性的重入。
 
 元数据操作并非完全并行：每个队列只有一个受外部 fencing 保护的协调器，catalog 修改和 GC 共享跨客户端锁。增加进程数不会消除这些串行点或逐事务 fsync 延迟。在语义允许时合并小 publication；异步应用通过有界 executor 调用同步接口。[多进程示例](../examples/multiprocess.py)和 [benchmark 拓扑](BENCHMARKS_zh.md)展示了不同的执行方式。
 
@@ -85,7 +85,7 @@ assert features.load().shape == (6, 4)
 
 支持的 dtype：`uint8`、`int8`、`int16`、`int32`、`int64`、`float16`、`bfloat16`、`float32`、`float64`、`bool`。存储为小端、连续、未压缩数据。CUDA 张量在发布前复制到 CPU；辅助接口不编码 autograd 历史、稀疏布局、对象数组或复数 dtype。空张量和标量可完整加载，按行切片要求存在首维。`.load()` 返回 CPU PyTorch 张量；需要时显式调用 `.numpy()` 或 `.to(device)`。
 
-`ref[start:stop]` 读取连续行，校验与范围相交的 4 MiB 数据块。只支持步长为 1 的切片。这是文件读取，不是 mmap 视图。在 PyTorch 支持的环境里，`load(pin_memory=True)` 可请求 pinned CPU 内存。大张量需要相应调整 store 的记录/发布大小限制；默认限制仍然适用。
+`ref[start:stop]` 读取连续行，校验与范围相交的 4 MiB 数据块。只支持步长为 1 的切片。这是文件读取，不是 mmap 视图。在 PyTorch 支持的环境里，`load(pin_memory=True)` 可请求 pinned CPU 内存。记录／发布兼容参数不再施加这类大小配额；整条加载仍需分配返回 payload 所需内存，只需一部分时应使用认证范围读取。
 
 批量恢复同一 publication 中的多个张量描述符：
 
@@ -146,7 +146,7 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 | Ready batch | `batch_ready` | 所有 rank/reader 读完后，在消费者进度中列入 `finished_batches` |
 | 已登记 checkpoint | 用有效根调用 `register_checkpoint` | `release_checkpoint` |
 
-保留关系是持久化 owner 集合，不是 Python 引用计数。GC 不依赖 `del`、析构或 lease 超时。`retain` 会替换该 owner 的全部根；需要独立保留的版本必须使用不同 owner ID，并先保留新版本再释放旧版本。不要使用内部的 `queue:`、`staged:` owner 名称。
+保留关系是持久化 owner 集合，不是 Python 引用计数。GC 不依赖 `del`、析构或 lease 超时。`retain` 会替换该 owner 的全部根；需要独立保留的版本必须使用不同 owner ID，并先保留新版本再释放旧版本。公共 retain、release 和 reactivation API 拒绝内部协议保留的 `queue:`、`publication:` owner 名称，也不要使用内部的 `staged:` owner 名称。
 
 `store.collect_garbage()` 回收已经没有 owner 的封存 pack。队列应调用 `queue.collect_garbage()`，让已确认消费的队列历史先持久化结束其根的保留，同时检查每个存活队列根都有所有权。所有权缺失、数据损坏或存储错误必须上报给应用，不能当成可忽略的清理告警。
 
@@ -166,6 +166,21 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 
 所有存储/协调器调用都是同步的，异步应用应使用有界 executor。控制通道由应用选择；`straw.rpc` 中的小型 JSON HTTP 通道面向示例和私有任务网络，不是托管的多租户服务。详见[应用集成](APPLICATIONS_zh.md)。
 
+### 重启后分别续上什么
+
+| 状态 | 持久化依据 | 应用需要做什么 |
+|---|---|---|
+| 数据集／任务生产位置 | 与任务同一事务提交的 `producer_state` | 读取该状态；结果不确定时以同一 request ID 重试 |
+| 采样到一半的任务 | 最后一次提交的 `save_task_progress` 或 `yield_task` 输入引用 | 恢复其中一致的 tokens／RNG／应用状态；之后未提交的工作可能重做。中断的 active lease 会按重试预算处理 |
+| 训练 | 一份已提交的模型／optimizer／RNG checkpoint 及其匹配的 consumer state | 应用选择该 checkpoint，先恢复它的数据位置、pending 工作和稀疏进度，再继续读取 |
+
+`recover=True` 重放队列 WAL，`load_consumer_state` 返回日志中最新的消费者状态；两者都不会自动选择或加载外部模型 checkpoint。例如模型 checkpoint 在第 100 步，最新 processed 游标已到 110，旧模型直接从 110 读可能跳过应重做的工作。
+
+开启 GC 后尤其需要区分这两个提交点。不可变 checkpoint 建立之后才产生的结果，不可能已经包含在其 dependencies 中。将这些结果确认为 processed **之前**，应建立独立 replay owner，例如按 checkpoint／receipt 使用唯一 owner 调用 `store.retain(owner, [receipt.result_ref])`；复用同一 owner 时必须保留累计的完整引用集合。直到更新的一致 checkpoint 持久提交后，才释放对应旧 owner。另一种安全策略是延后 processed 确认到 checkpoint 提交，但会占用更多运行时预算。
+
+恢复时，先恢复所选 checkpoint 的模型／optimizer／RNG 和匹配的 consumer state，包括 pending／prefetched 工作。保存恢复后的 consumer state 会先重新建立必要的队列 owner，此后才释放临时 replay owner。已缺失或回收的历史会被拒绝；修改游标不能让数据重新出现。开启 GC 的 mock optimizer 回归及采样进程直接退出回归见 [test_resume_workflow.py](../tests/test_resume_workflow.py)。
+
+
 ## 批量读取会话
 
 连续读取不可变 publication 时，可共用一个 `with store.read_session() as reader:`。Reader 提供 `validate`、`manifest`、`read`、`read_record`、`envelope` 和带校验的张量读取。将它传给 `TensorRef.from_record_set_many(store, publication, reader=reader)` 与 `tensor.load(reader=reader)`，可避免重复解析同一 extent 的索引。
@@ -179,8 +194,45 @@ Rust reader 只保留最后一个已认证索引，以完整 extent 描述符区
 
 ### 持久化任务排序
 
+`acquire(..., task_ids=[...])` 把 ID 列表视为集合过滤：重复 ID 不会产生额外 assignment 或占用批量名额；未知／非 pending ID 被忽略，匹配任务仍按调度顺序选出。
+
 `TaskSpec.priority`（默认 0）降序，其次 `scheduling_key`（默认 0）升序，再按 FIFO；两个字段均为有符号 64 位整数。排序字段及提交/归还顺序会从 WAL 恢复。Rust coordinator 维护有序 pending 索引，选取任务无需读取 payload。
 
 先发布续跑输入，再调用 `yield_tasks(updates, request_id=...)`。每项包含 `lease`、`input_ref`，可同时替换 `priority`、`scheduling_key` 和 `metadata`。整批校验后只提交一次 WAL；所有 lease 同时结束，任务进入其排序键的 FIFO 队尾。任何 stale lease 都会拒绝整批。相同请求重试幂等；只有确实需要另一个输入版本时才重新发布。与此不同，`save_task_progress_many` 保留 lease。
 
 `pending_tasks()` 返回按领取顺序排列的任务 spec，可用于暂停后的快照；暂停边界和输入引用持有由应用协调。这些 API 需要 `straw-queue>=0.1.1`。
+
+### 发布报错后的请求身份
+
+完整文件形成后，若 sync、staging、seal 或内部 owner 交接报错，应在同一 writer 上使用相同 API、`submission_id` 和内容重试。期间另一 ID／API 返回 `IndeterminateCommit`；相同身份但不同内容返回 `IdempotencyConflict`；显式 `seal()` 也会拒绝。原请求成功后才接受下一条。`close()`／放弃或进程死亡可能留下安全保留的文件／owner；已登记的遗弃请求可使用下面的显式退休协议处理。完整文件形成之前失败的准备仍保留依赖供重试；存活 writer 可以显式 seal／close 放弃并清理这些准备。
+
+### 发布响应丢失后的 writer 回执查询
+
+发布前，将 `store.writer_id` 与应用请求身份一起保存。内部交接完成并不代表调用方已经收到响应。如果报错或进程退出前已经持久记录 `Results`，同一存储池中的新客户端可以按三个精确身份字段查询：
+
+```python
+receipt = peer.publication_receipt(
+    writer_id,
+    api="publish",          # records、record_set 或 publish
+    submission_id="publication-1",
+)
+```
+
+`records` 对应 `write_records`，`record_set` 对应 `record_set`，`publish` 对应 `publish`／`publish_many`。查询返回该 writer／API／submission ID 最新已记录的结果列表，包括内部已经完成或已经退休的操作；`None` 表示该精确身份还没有记录结果。查询持有同一 writer gate，忙时返回 `WriterBusy`；已经 fenced 的 writer 仍可查询。
+
+查询只读回执，不增加 staging 或改变所有权。旧引用可能已被合法消费并由 GC 回收，查询不会恢复数据或重新取得保护。对于未完成的已登记发布，`peer.retire_writer(writer_id, policy="recover")` 会先 fencing，将完整结果恢复为 staging，再 seal 该 writer 的 reservation。仍然持锁的 writer 返回 `WriterBusy`；被 fencing 的旧 writer 恢复运行后会收到 `WriterFenced`，后续发布需要创建新 writer。显式 `policy="abandon"` 放弃未完成操作，同时保留已有 queue、reader 和 staging 根。无法确认来源的历史准备 owner 会被保留并报告错误。
+
+退休依赖部署满足 gate 锁、锁交接后的 fence 读取一致性和在途操作排空契约，详见[环境模型](ENVIRONMENT_MODELS_zh.md)。PID、心跳和 lease 超时都不构成死亡或排空证据。
+
+
+### 释放 publication 的重试
+
+`release_publications(refs)` 消费根及依赖的 staging，不影响独立 reader／checkpoint／队列 owner。新版第一次成功记录释放（即使响应报错）后，可在 GC 删除 manifest 后重试、重新打开客户端或重新分组这些引用；依赖后来重新获得的 staging 也会消费。调用方应在不再需要这些 publication 时释放。旧日志若没有记录依赖图且文件已被回收，仍会报错；不能把这种历史状态当作已支持恢复。
+
+发布在完整文件形成之前因校验或写入失败时，会保留已经建立的依赖 hold 供原请求重试；其他请求不会覆盖这些准备的 owner。显式 `seal()`／`close()` 表示放弃未完成准备并清理其内部 hold，此后不保证原准备仍可重试。清理报错返回 `IndeterminateCommit` 并保留当前身份；之后的操作先完成已开始的清理。完整文件的不确定交接仍需通过原 API 和 submission ID 解决，close 仍保留其保护。进程死亡和历史遗留 owner 不会自动恢复。
+
+## Typed tensor 引用的提前校验
+
+`TensorRef.load()`、切片和 `validate()` 在分配／读取 payload 前，将引用中的 dtype、shape 和字节长度与已认证的 envelope 绑定。错误引用报 `CorruptData`；不会为发现字段不匹配先读取整个大 tensor。空切片也校验引用，因此可能执行元数据 I/O，并报告引用不匹配或存储错误；不能用空切片证明文件没有被访问。相同字段的旧记录继续按已编码的 checksum 粒度读取。
+
+低层 `store.read_tensor_range(ref, start, stop, expected=...)` 和 read session 同名方法可选接收 `{"dtype": ..., "shape": [...], "length": ...}`，只要求这些字段与 envelope 一致。省略时保留原来的字节区间 API。`TensorRef` 另外校验自身的 shape／字节数关系；该 Python 校验、JSON／FFI 和完整调用顺序尚未被 Verus 证明。提前拒绝的保证针对 payload，元数据读取、解析和分配仍有成本。

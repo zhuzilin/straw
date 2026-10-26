@@ -1,0 +1,197 @@
+{
+  "passed": true,
+  "change": "After create_dir_all and canonicalize, sync the complete resolved ancestor chain from leaf through filesystem root, including existing names. Propagate any failed barrier and repeat the complete chain on retry. Prevent acknowledged publication with an ancestor left nondurable by a prior mkdir/sync failure.",
+  "verification": {
+    "verus_verified": 77,
+    "verus_errors": 0,
+    "verus_semantic_negatives": 47,
+    "verus_environment_negatives": 3,
+    "directory_verus_semantic_negatives": 4,
+    "tlc_cases": 101,
+    "tlc_environment_negatives": 7,
+    "directory_tlc_cases": {
+      "directory_durability": {
+        "kind": "positive",
+        "states": 318,
+        "expected_violation": null
+      },
+      "directory_existing": {
+        "kind": "positive",
+        "states": 300,
+        "expected_violation": null
+      },
+      "directory_durable": {
+        "kind": "positive",
+        "states": 72,
+        "expected_violation": null
+      },
+      "directory_one_level": {
+        "kind": "positive",
+        "states": 90,
+        "expected_violation": null
+      },
+      "directory_measured_depth": {
+        "kind": "positive",
+        "states": 2730,
+        "expected_violation": null
+      },
+      "directory_partial_existing": {
+        "kind": "positive",
+        "states": 312,
+        "expected_violation": null
+      },
+      "directory_partial_existing_is_durable": {
+        "kind": "algorithm_negative",
+        "states": 21,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "directory_existence_is_durable": {
+        "kind": "algorithm_negative",
+        "states": 102,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "directory_skip_root": {
+        "kind": "algorithm_negative",
+        "states": 140,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "directory_ignore_sync_error": {
+        "kind": "algorithm_negative",
+        "states": 63,
+        "expected_violation": "NoLostAcknowledgedData"
+      },
+      "environment_directory_barrier_lies": {
+        "kind": "environment_negative",
+        "states": 114,
+        "expected_violation": "NoLostAcknowledgedData"
+      }
+    },
+    "python_tests": 349,
+    "native_tests": 31,
+    "clippy_default_and_python": "passed",
+    "installed_wheel_and_protocol_campaigns": "passed",
+    "prior_90_tlc_algorithm_config_and_state_counts": "unchanged; EnvironmentPersistence additionally defines creation-prefix/directory-entry/reachability responses",
+    "environment_contracts": 25,
+    "environment_consumers": 18,
+    "environment_registry_sha256": "343ab0640ee8378b6a035e94bd6d069fa4d684db7627d266ff1c03486845736b"
+  },
+  "scope": {
+    "rust": "The actual directory.rs start/next/advance/finished functions are Verus-proved for all u64 counts/states. Success advances one barrier, failure stops and completion requires the entire count. Path resolution/enumeration, std::fs calls, the indexing/I/O adapter and full publication/queue refinement remain unproved. No cache of durable directories is introduced.",
+    "tla": "Finite directory-entry/persistence model with partial creation, side effects despite failed sync, one crash, unbounded retries before eventual I/O stability and weak fairness. Publication abstracts durable file/leaf-directory completion. Six positive configurations, four algorithm-negative configurations (three mutation strategies) and one environment-negative case. Negative controls select TypeOK and NoLostAcknowledgedData to continue past earlier path-durability violations.",
+    "partial_prefix_counterexample": "Starts with entry 1 visible but nondurable and no further I/O failures. The old policy stops ancestor barriers at the existing prefix, persists entries 2 and 3 only, acknowledges the payload, then loses reachability on crash. This directly reflects the measured missing pool barrier while abstracting exact syscall order and full publication.",
+    "environment": "ENV-DIRECTORY requires valid finite directory chains, stable directory identitiesprivate-artifact-0078 topology and no external replacement/deletion during use. All resolved ancestors, including those outside the pool, must be openable for sync. Canonicalization does not certify persistence of externally managed alias entries. Successful directory barriers are trusted; actual service/device power loss is untested.",
+    "measurements": "Exact private-directory fsync EIO injections expose barrier coverage, not actual loss of data or natural failure rates. Healthy timing disables injection/logging; the shim remains loaded and directly forwards fsync. Traced retry timing includes writes of per-barrier logs to JuiceFS and must not be pooled with normal timing or used as a production cost comparison.",
+    "limits": "One four-host run, caches/background load uncontrolled, 2 KiB payloads. Cold means a new store and first publication including catalog initialization. Hot means the next publication by the same writer. No latency guarantee, timeout spec, 100 GB/TB throughput rerun or attribution of earlier untraced anomalies."
+  },
+  "measured_spec_input": {
+    "resolved_directories_including_root": 13,
+    "tlc_depth": 12,
+    "positive_states": 2730,
+    "interpretation": "One observed configuration, not a maximum supported depth or an environmental constant"
+  },
+  "measurement": {
+    "passed": true,
+    "root": "private-artifact-0079",
+    "remote": "private-artifact-0080",
+    "hosts": [
+      "client-1",
+      "client-2",
+      "client-3",
+      "client-4"
+    ],
+    "identities": {
+      "baseline": {
+        "wheel_sha256": "99a0f4e7b1bb2a9ddbeba7d0dc2c21b4c02716ff711eb6ca1ba85a45cab77260",
+        "native_sha256": "619706e5a322bed69d0c029d6fa4582d767cb2b83c4461bcf7ef88e3c4c2f7b4"
+      },
+      "fixed": {
+        "wheel_sha256": "b4cc7aa802335607170233c41ae284d4f4f81f6f529b620db9e44538aac1b8e1",
+        "native_sha256": "49b5b2c156dba49328e46365573af309b1f02362958a3d26ee2af29ade739d0f"
+      }
+    },
+    "shim_sha256": "940fac6916633a138a94353c72dfaa7673499f108ab76a27aa911ff878329adb",
+    "data_cleaned": true,
+    "healthy_timing_ms": {
+      "baseline": {
+        "cold": {
+          "n": 100,
+          "p50": 218.08630228042603,
+          "p95": 313.16645443439484,
+          "p99": 325.9919583797455,
+          "max": 327.8772085905075
+        },
+        "hot": {
+          "n": 100,
+          "p50": 128.0849203467369,
+          "p95": 199.3742138147354,
+          "p99": 224.04981404542923,
+          "max": 263.55504989624023
+        }
+      },
+      "fixed": {
+        "cold": {
+          "n": 100,
+          "p50": 219.15660798549652,
+          "p95": 301.816925406456,
+          "p99": 331.9381847977638,
+          "max": 332.67486467957497
+        },
+        "hot": {
+          "n": 100,
+          "p50": 128.1178966164589,
+          "p95": 208.07075314223766,
+          "p99": 245.62961608171463,
+          "max": 298.100296407938
+        }
+      }
+    },
+    "traced_retry_ms": {
+      "baseline": {
+        "n": 100,
+        "p50": 369.88506093621254,
+        "p95": 468.6765596270561,
+        "p99": 521.3925316929817,
+        "max": 549.1897314786911
+      },
+      "fixed": {
+        "n": 100,
+        "p50": 580.7099044322968,
+        "p95": 749.0622587502003,
+        "p99": 802.9424399137497,
+        "max": 805.5825382471085
+      }
+    },
+    "barrier_checks": {
+      "baseline": {
+        "cases": 100,
+        "missing_retry_ancestor_barriers": 100
+      },
+      "fixed": {
+        "cases": 100,
+        "missing_retry_ancestor_barriers": 0
+      }
+    },
+    "packs_reclaimed": 400,
+    "scope": "Four hosts, independent private pools, 2 KiB publications. Two hosts run baseline first, two fixed first. 100 injected retry cases per binary log all directory fsync paths; no actual storage crash/data loss test. Healthy cold/new-object and hot/same-writer publications have 100 samples per binary/phase with tracing and injection disabled; the shim remains loaded. No cache eviction or controlled background load. No 100 GB/TB payload bandwidth or latency bound.",
+    "remote_cleanup": {
+      "client-1": true,
+      "client-2": true,
+      "client-3": true,
+      "client-4": true
+    }
+  },
+  "barrier_counts_per_traced_retry": {
+    "baseline": 5,
+    "fixed": 14,
+    "fixed_interpretation": "13-directory chain plus final leaf publication barrier"
+  },
+  "artifacts": {
+    "measurement": "private-artifact-0081",
+    "verification": "private-artifact-0050",
+    "baseline_source_snapshot": "private-artifact-0082"
+  },
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}

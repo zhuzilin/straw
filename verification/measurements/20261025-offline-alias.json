@@ -1,0 +1,378 @@
+{
+  "date_utc": "2026-10-25T09:19:00.665293+00:00",
+  "kind": "offline_cleanup_reference_bindings",
+  "passed": true,
+  "production_changed": true,
+  "production_changes": [
+    "src/straw/inspect.py"
+  ],
+  "rust_changed": false,
+  "environment_registry_sha256": "1e554b3256c9c533b1fbdf2a435f9fe42766b78e6381071bda77222c2cffc3f9",
+  "validation": {
+    "passed": true,
+    "production_changes": [
+      "src/straw/inspect.py"
+    ],
+    "environment_registry_sha256": "1e554b3256c9c533b1fbdf2a435f9fe42766b78e6381071bda77222c2cffc3f9",
+    "contracts": 42,
+    "consumers": 41,
+    "component_layers": 19,
+    "tla_cases": 349,
+    "tla_kinds": {
+      "positive": 146,
+      "algorithm_negative": 178,
+      "environment_negative": 25
+    },
+    "tla_temporal_negatives": 18,
+    "previous_tla_cases_unchanged": 332,
+    "new_tla_cases": {
+      "offline_alias_file_FALSE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_file_TRUE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_chain_FALSE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_chain_TRUE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_directory_FALSE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_directory_TRUE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_backtrack_FALSE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_backtrack_TRUE": {
+        "kind": "positive",
+        "states": 29,
+        "passed": true
+      },
+      "offline_alias_unknown": {
+        "kind": "positive",
+        "states": 2,
+        "passed": true
+      },
+      "offline_alias_raw_names": {
+        "kind": "algorithm_negative",
+        "states": 8,
+        "passed": true
+      },
+      "offline_alias_final_only": {
+        "kind": "algorithm_negative",
+        "states": 7,
+        "passed": true
+      },
+      "offline_alias_ancestors_only": {
+        "kind": "algorithm_negative",
+        "states": 7,
+        "passed": true
+      },
+      "offline_alias_partial_unconditional": {
+        "kind": "algorithm_negative",
+        "states": 7,
+        "passed": true
+      },
+      "offline_alias_unlink_target": {
+        "kind": "algorithm_negative",
+        "states": 7,
+        "passed": true
+      },
+      "offline_alias_ignore_error": {
+        "kind": "algorithm_negative",
+        "states": 8,
+        "passed": true
+      },
+      "offline_alias_stall": {
+        "kind": "algorithm_negative",
+        "states": 2,
+        "passed": true
+      },
+      "environment_offline_bindings_incomplete": {
+        "kind": "environment_negative",
+        "states": 7,
+        "passed": true
+      }
+    },
+    "verus_positive_rerun": 119,
+    "verus_inputs_unchanged": 21,
+    "reused_verus_negative_controls": 105,
+    "python_tests": 823,
+    "native_tests_reused": 40,
+    "native_test_source_checks": {
+      "Cargo.lock": "e0a7ab649454cdb5cbc5ee8563c178d1b47a686dfc199ba866cbade02dd47323",
+      "Cargo.toml": "0130120d0ea80be2c062ae80f4c7889fe844ffacd58b38e55c704a9f5a694e96",
+      "rust/access.rs": "997e45e9e7130c55d36a89d09405fdc87000e8167ae3eb82b35eee86682f8448",
+      "rust/bounds.rs": "9d1531098298b4e3568474f28e6a753203d91b43e41ddb7d8d9a823d8f820fed",
+      "rust/consumption.rs": "4de026dcdf77a27bac0c3144e6edb9e92c5b7beaf9538d40b844730ea0801cc9",
+      "rust/coordinator.rs": "76ae5d524ea4416c0539b58e0882bbf08eb3dcbea6e5995a10a0ab20fa218968",
+      "rust/directory.rs": "cc7f467c963b59bf85cd996abd8b077c6c2de3f196ac281b0ef07a0bd011e030",
+      "rust/discovery.rs": "11a3d4dcc8df3355500514c0fa0120471e244ac516b215f381c7fd57dceee526",
+      "rust/finalization.rs": "f0f9c06114d6690048d4d4b121e58f0b73bfda94ebbf6f0af81e9dcf60d93a59",
+      "rust/gc.rs": "51c878f7929f29197f579575e5ff087cde90e9c3307e0e1774bf96fa1fce0ff3",
+      "rust/holding.rs": "1f185d6b699aab5878f4bb1d8f20866ebfc8eed48eb9e94065dad23857c95e1a",
+      "rust/identities.rs": "228cfac083b21b620e8adb3e818d23fcb67974e4c9bf3ae9f76589b331eaa876",
+      "rust/incomplete.rs": "bdc86e277a1925853af6bd41365965c09f4965ed1412cbafd38c443063e40544",
+      "rust/journal.rs": "406de90d24a78e318c38140478ad78e9490fbfc378bac791294fe8450a4eaa97",
+      "rust/lib.rs": "0b6c70a9f62ef57329af0137536a8ed2e668a38884fc289b1023f76704a8bef8",
+      "rust/payload.rs": "8e303dc454840de2f6806417f3214b0ff177dd6667d05b0153edf487bcbcf539",
+      "rust/pending.rs": "78d03800ce73a3a841b7f599231ac36d64545cfbe430592f49ae290e6109c4fa",
+      "rust/protocol.rs": "fcfee0323f1a688beffbce8c06d65fcf155053ba0b8b6753d6db9aa0c5b98ae8",
+      "rust/python.rs": "b50458887d207dec15563ec1fd51de0d5d4afa8a68771a172eff50a5c797a909",
+      "rust/reclamation.rs": "c13075092a7809513c97dfa6fb9ebc52398484ee24124da170c25e1baa9e5bd2",
+      "rust/replay.rs": "20c0bf2f71d83d402bdc0254dd3aeb82c100e8361b7fbfeb4c9823a21b095906",
+      "rust/selection.rs": "c3902e0a087b1507eada9de9ee7038dfd05d7ba429f8031d829271e7e50428af",
+      "rust/store.rs": "f70b03dfcbe3aa705b6191c229093603ce5f3701748dfa17325afe7586519b6b",
+      "rust/stream.rs": "59e2ee060a37b40e67dae651c644d1aba217a0af5aca278ced6eabefffe8b0e4",
+      "rust/traversal.rs": "502dbc13d4f02d6d1307f7002c2644b875ce96bb7f7f80d235eb59e22a0a1a73",
+      "rust/typed.rs": "6d98fcffb0f7038a07cec022e3432a0e730686a4905e7d5df4a408d83d04f8cc",
+      "tests/native.rs": "6e1f66a03ce694255ddf5981597cf1f450a3feb8efb1b1be7609ea55c7d83976"
+    },
+    "wheel_check": {
+      "wheel": "straw_queue-0.1.3-cp312-cp312-manylinux_2_34_x86_64.whl",
+      "sha256": "f50fbf12acefc4edf0c34b3a3236674380bf2a33896a4c96de8aa12731077c5a",
+      "version": "0.1.3",
+      "native_extension": "straw/_native.cpython-312-x86_64-linux-gnu.so",
+      "passed": true,
+      "runtime_dependencies": "existing NumPy/PyTorch reused; no Rust or maturin on test PATH",
+      "checks": [
+        "no local source paths in generated metadata",
+        "binary-only install",
+        "installed-package import",
+        "records",
+        "tensors/COW",
+        "queue/GC",
+        "multiprocess crash/recovery",
+        "README Python examples",
+        "local benchmark/GC",
+        "trace profile"
+      ],
+      "benchmark_payload_bytes": 8257536,
+      "benchmark_publications": 42,
+      "benchmark_data_files": 6,
+      "benchmark_root_removed": true,
+      "core_and_protocol_checks": true
+    },
+    "wheels": {
+      "baseline": {
+        "wheel_sha256": "dc8935792ae5323aad190792b6b92c57c932a521696fd833e2b7e8feaf9c97cf",
+        "native_sha256": "32fcb1b2f85895ac1dd13bc03b353f948cf2caa2e712e15c2528f9723eeec47d",
+        "inspector_sha256": "ba81adc666b4c4334fa90a68f02a547e3cbdb17d398e59757bc152e7589dcfa4"
+      },
+      "fixed": {
+        "wheel_sha256": "f50fbf12acefc4edf0c34b3a3236674380bf2a33896a4c96de8aa12731077c5a",
+        "native_sha256": "32fcb1b2f85895ac1dd13bc03b353f948cf2caa2e712e15c2528f9723eeec47d",
+        "inspector_sha256": "f427a96b129ee444ac68aa57a467cef11f01ea4bdf453effaaad654c5cd38453"
+      }
+    },
+    "campaign": {
+      "report_sha256": "229c1069c7d0f4c5d6090d2f54d4b7e77fc0065f21e5643178b147a25c78bd30",
+      "variants": {
+        "baseline": {
+          "cases": 112,
+          "broken_reads": 88,
+          "unsafe_deleted_files": 56,
+          "route_only_losses": 32,
+          "unsafe_deleted_bytes": 235006436,
+          "intended_offline_orphan_files": 112,
+          "orphan_and_dangling_aliases_removed": 224,
+          "all_journals_preserved": true
+        },
+        "fixed": {
+          "cases": 112,
+          "broken_reads": 0,
+          "unsafe_deleted_files": 0,
+          "route_only_losses": 0,
+          "unsafe_deleted_bytes": 0,
+          "intended_offline_orphan_files": 112,
+          "orphan_and_dangling_aliases_removed": 224,
+          "all_journals_preserved": true
+        }
+      }
+    },
+    "local_cases": 56,
+    "initial_reproductions": [
+      {
+        "passed": true,
+        "all_four_baseline_reads_broken": true,
+        "native_sha256": "32fcb1b2f85895ac1dd13bc03b353f948cf2caa2e712e15c2528f9723eeec47d",
+        "cases": [
+          {
+            "mode": "manifest_file",
+            "alias": "alias.sealed",
+            "physical": "raw/44/44fdb38a217f46768ca6de729e71e30e/33c180886e8f4ebeac30f7b6cdd3dd44.sealed",
+            "retained": [
+              "alias.sealed"
+            ],
+            "removed": [
+              "raw/44/44fdb38a217f46768ca6de729e71e30e/33c180886e8f4ebeac30f7b6cdd3dd44.sealed"
+            ],
+            "physical_exists_after": false,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0001"
+          },
+          {
+            "mode": "partial_file",
+            "alias": "alias.pack",
+            "physical": "raw/80/8072451a5a4642e7907bc5586749f74d/9a2d59667fca429d99072e758a7ad78b.pack",
+            "retained": [
+              "alias.pack"
+            ],
+            "removed": [
+              "raw/80/8072451a5a4642e7907bc5586749f74d/9a2d59667fca429d99072e758a7ad78b.pack",
+              "raw/aliases/routes/route.partial"
+            ],
+            "physical_exists_after": false,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0002"
+          },
+          {
+            "mode": "partial_directory",
+            "alias": "raw/aliases/routes/route.partial/efba64f977c64755842c6781a9195baa.pack",
+            "physical": "raw/42/42c5c683dd194342bb13d0d8c71e209e/efba64f977c64755842c6781a9195baa.pack",
+            "retained": [
+              "raw/aliases/routes/route.partial/efba64f977c64755842c6781a9195baa.pack"
+            ],
+            "removed": [
+              "raw/42/42c5c683dd194342bb13d0d8c71e209e/efba64f977c64755842c6781a9195baa.pack",
+              "raw/aliases/routes/route.partial"
+            ],
+            "physical_exists_after": false,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0003"
+          },
+          {
+            "mode": "sealed_directory",
+            "alias": "raw/aliases/routes/route.sealed/eae1f530a8ce4c45bb2f2d3ee491a146.pack",
+            "physical": "raw/9d/9d9ff6a86e734409b097bdfc1463acb2/eae1f530a8ce4c45bb2f2d3ee491a146.pack",
+            "retained": [
+              "raw/aliases/routes/route.sealed/eae1f530a8ce4c45bb2f2d3ee491a146.pack"
+            ],
+            "removed": [
+              "raw/9d/9d9ff6a86e734409b097bdfc1463acb2/eae1f530a8ce4c45bb2f2d3ee491a146.pack",
+              "raw/aliases/routes/route.sealed"
+            ],
+            "physical_exists_after": false,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0004"
+          }
+        ],
+        "scope": "No fault injection. Stable in-pool symlinks created before acceptance; standalone stopped single queue, no catalog or shared namespace."
+      },
+      {
+        "passed": true,
+        "all_four_baseline_reads_broken": true,
+        "native_sha256": "32fcb1b2f85895ac1dd13bc03b353f948cf2caa2e712e15c2528f9723eeec47d",
+        "cases": [
+          {
+            "mode": "manifest_file",
+            "alias": "alias.sealed",
+            "physical": "raw/55/55e23976eb4340268de6e5d17ec0642d/74732c589ebf47ed81dbdda161a37dcf.sealed",
+            "retained": [
+              "alias.sealed"
+            ],
+            "removed": [
+              "raw/55/55e23976eb4340268de6e5d17ec0642d/74732c589ebf47ed81dbdda161a37dcf.sealed"
+            ],
+            "physical_exists_after": false,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0005"
+          },
+          {
+            "mode": "partial_file",
+            "alias": "alias.pack",
+            "physical": "raw/8a/8a68af627ffd448f843724f5e0920fce/9893834d548d4e8daf550f27d47bd8a7.pack",
+            "retained": [
+              "alias.pack",
+              "raw/8a/8a68af627ffd448f843724f5e0920fce/9893834d548d4e8daf550f27d47bd8a7.pack"
+            ],
+            "removed": [
+              "raw/aliases/routes/route.partial"
+            ],
+            "physical_exists_after": true,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0006"
+          },
+          {
+            "mode": "partial_directory",
+            "alias": "raw/aliases/routes/route.partial/ff617c4b2adb453aa5f38556010bdfb9.pack",
+            "physical": "raw/f5/f55b35f96b6f44be938b8a2e7ca03dc3/ff617c4b2adb453aa5f38556010bdfb9.pack",
+            "retained": [
+              "raw/aliases/routes/route.partial/ff617c4b2adb453aa5f38556010bdfb9.pack",
+              "raw/f5/f55b35f96b6f44be938b8a2e7ca03dc3/ff617c4b2adb453aa5f38556010bdfb9.pack"
+            ],
+            "removed": [
+              "raw/aliases/routes/route.partial"
+            ],
+            "physical_exists_after": true,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0007"
+          },
+          {
+            "mode": "sealed_directory",
+            "alias": "raw/aliases/routes/route.sealed/002fb6da60df4f8197d6fd5e722fb23c.pack",
+            "physical": "raw/9b/9b9ef1ee0c1f41cfb32869317d48b47c/002fb6da60df4f8197d6fd5e722fb23c.pack",
+            "retained": [
+              "raw/9b/9b9ef1ee0c1f41cfb32869317d48b47c/002fb6da60df4f8197d6fd5e722fb23c.pack",
+              "raw/aliases/routes/route.sealed/002fb6da60df4f8197d6fd5e722fb23c.pack"
+            ],
+            "removed": [
+              "raw/aliases/routes/route.sealed"
+            ],
+            "physical_exists_after": true,
+            "read_error_after": "StorageUnavailable",
+            "private": "private-artifact-0008"
+          }
+        ],
+        "scope": "No fault injection. Stable in-pool symlinks created before acceptance; standalone stopped single queue, no catalog or shared namespace."
+      }
+    ],
+    "tla_configuration_correction": "The first final_only negative used a file chain, whose aliases are conservatively retained by final-identity comparison. It correctly found no violation. Changing that case to a directory alias produces the intended AcceptedReadable violation. Original focused/full reports and corrected run retained; authoritative report substitutes only this corrected case."
+  },
+  "defect": "Raw retained-name comparison can delete canonical files referenced through stable aliases. Even a separately retained canonical file does not prevent unlink of required partial/sealed aliases. Final canonical ancestors alone miss directories traversed before .. in symlink targets. All occur in stopped standalone single-queue fixtures with genuine accepted WAL roots and no fault injection.",
+  "fix": "Inspection-local successful identity and trace caches normalize retained_paths and protect every reference-resolution binding. Apply checks to sealed/pack and partial candidates. Trace errors forbid deletion and uncertain/escaping candidate identities abort inspection. Unlink lexical enumerated names, never substitute resolved targets. Reinspection, stopped-run gate and shared-layout guards remain required.",
+  "findings": [
+    "Four hosts run 112 baseline and 112 fixed cases across seven alias/reference shapes, 2 KiB/8 MiB payloads and presence/absence of a second canonical accepted root. Baseline loses 56 physical files (235,006,436 bytes) and breaks 32 additional references by deleting route aliases while physical files survive. Fixed has zero losses and every payload read matches.",
+    "Both versions reclaim 112 independent orphan packs and 224 orphan/dangling aliases. An unrelated alias target outside raw enumeration survives. All accepted journals are unchanged. Private fixture teardown is separate from intended offline orphan cleanup and intentional unsafe deletion; no catalog GC is claimed.",
+    "Twenty-eight local cases per version and two four-case initial reproductions are separate from four-host totals. All private pools and remote execution environments are removed.",
+    "The new finite model checks accepted reachability, lexical unlink, refusal on unknown resolution, successful orphan cleanup and conditional termination. Its environment-only negative removes required intermediate bindings; the resulting counterexample identifies the trace assumption."
+  ],
+  "source_binding": {
+    "src/straw/inspect.py": "f427a96b129ee444ac68aa57a467cef11f01ea4bdf453effaaad654c5cd38453",
+    "tests/test_offline_aliases.py": "a2b85f6e73a60b62ef6dd16392a75fa7f55102f31a710dbbb045f15f420f6391",
+    "verification/offline_alias_probe.py": "b8eb2f5e5807f7fc0ddf6cce60dc4e7432445158b351581813d29fc2909feac3",
+    "verification/tla/OfflineAliases.tla": "58535b48a70a02b81b846110f480839d53432e40c5b8416d94eb97366b8b0547",
+    "verification/tla/EnvironmentBindings.tla": "22c770019c9a5df872fcf09dc7d3752a5646625086256bfab61b87695dcdd685"
+  },
+  "limitations": [
+    "Complete resolution traces are supplied by the finite model. Python readlink/path traversal, WAL and JSON decoding, closure discovery, report reinspection and actual syscall correspondence are not mechanically refined. This Python change is not claimed as Verus-proved.",
+    "External namespace binding stability and actual participant quiescence are caller/environment obligations, not fencing proofs. Algorithm deletion is explicitly allowed in the model and checked; alias preservation is not assumed. Hard-link/bind-mount equivalence is outside the existing namespace contract.",
+    "Trace completeness requires truthful readlink success/EINVAL classification. Unknown retained paths disable deletion; unknown/escaping candidate paths abort inspection. The 40-link bound is a Linux path-expansion rejection guard, not a visibility or latency guarantee.",
+    "Failed deletion/sync may already have effects. Termination includes explicit refusal and does not establish automatic retries or eventual reclamation under arbitrary faults. No recovery of previously deleted data is provided.",
+    "The initial final-file-only negative configuration used a file alias that identity comparison already protects. Original non-triggering runs are retained; the corrected directory-alias case provides the required counterexample. The final report records the targeted replacement explicitly.",
+    "All 21 Verus inputs and Rust/native test inputs are identical to prior full checks. Fresh 119 positive Verus checks and Python/wheel tests are separate from reused 105 semantic negatives and 40 native tests.",
+    "No new throughput/p99 claim, 100 GB/physical TB run, cold-cache guarantee, full-system proof or claim of no remaining bugs."
+  ],
+  "publication_redaction": {
+    "scope": "Public summary with deployment identifiers and private artifact locations removed.",
+    "provenance": "Embedded source/tool hashes describe the original execution inputs. This redacted JSON is not byte-identical to the original private record and is not a replacement for raw proof logs."
+  }
+}
