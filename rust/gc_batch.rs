@@ -180,6 +180,8 @@ pub fn collect<E: Effects>(effects: &mut E) -> Result<Statistics, Failure<E::Err
         match effect {
             ReclaimEffect::SyncParents => {
                 let mut remaining = parents.iter();
+                // The proof must inspect the remaining set before next() advances it.
+                #[allow(clippy::while_let_loop)]
                 #[cfg_attr(straw_verus, verus_spec(
                     invariant effects.context_valid(), effects.context() == old(effects).context(), remaining.decrease().is_some(), valid(effects@),
                         same_batch(old(effects)@, effects@), effects@.absent == indices(effects@),

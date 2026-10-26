@@ -28,12 +28,19 @@ python verification/runners/check_tla.py --area wal --area gc --jar /path/to/tla
 python verification/runners/check_verus.py --verus /path/to/verus
 ```
 
-These runners check pinned tool versions/hashes. See
+Verus checks its pinned tool version/hash. TLC records the jar hash without
+enforcing a checksum. See
 [formal verification](../docs/FORMAL_VERIFICATION.md) for setup, evidence levels
 and unproved boundaries, and [environment models](../docs/ENVIRONMENT_MODELS.md)
 for contract review. Probe commands and deployment conditions are documented in
 [filesystem measurements](../docs/FILESYSTEM.md). Cargo example names remain
 unchanged, for example `cargo run --release --example positioned_extent_probe`.
+
+Verus logs label normal code as `positive: proof required`; it must verify
+with zero errors. `negative: expected rejection` labels a deliberately broken
+copy of the code or an environment contract. PASS there means Verus rejected
+that copy with a semantic proof error. A negative that verifies successfully,
+a compile/tool failure, timeout or resource exhaustion fails the gate.
 
 Complete core implementation refinement remains open.
 The [call-chain correspondence](../docs/VERIFICATION_BOUNDARIES.md) identifies

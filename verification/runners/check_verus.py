@@ -7087,6 +7087,39 @@ def select_cases(configured, requested=None, shard_index=0, shard_count=1):
     return selected
 
 
+def classify_result(output, status, negative, *, timeout=False):
+    """Only semantic proof rejection can satisfy a negative control."""
+    summary = re.search(r"verification results:: (\d+) verified, (\d+) errors", output)
+    verified, errors = map(int, summary.groups()) if summary else (0, 0)
+    semantic_error = bool(
+        re.search(
+            r"^error: (?:precondition not satisfied|postcondition not satisfied|(?:possible )?arithmetic underflow/overflow|(?:loop )?invariant not satisfied|assertion failed)",
+            output,
+            re.M,
+        )
+    )
+    resource_failure = bool(re.search(r"Resource limit|rlimit.*exceeded|out of memory", output, re.I))
+    tool_failure = bool(re.search(r"^error\[E\d+\]|^error: (?:expected|cannot|could not)|panicked at", output, re.M))
+    passed = (
+        not timeout
+        and not resource_failure
+        and not tool_failure
+        and bool(summary)
+        and (
+            status is not None and status > 0 and errors > 0 and semantic_error
+            if negative
+            else status == 0 and verified >= 69 and errors == 0
+        )
+    )
+    return {
+        "verified": verified,
+        "errors": errors,
+        "resource_failure": resource_failure,
+        "tool_failure": tool_failure,
+        "passed": passed,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verus", type=Path)
@@ -7217,25 +7250,7 @@ def main():
             timeout = True
             output, status = str(error), None
         (directory / "verus.log").write_text(output)
-        summary = re.search(r"verification results:: (\d+) verified, (\d+) errors", output)
-        verified, errors = map(int, summary.groups()) if summary else (0, 0)
-        semantic_error = bool(
-            re.search(
-                r"(?:pre|post)condition not satisfied|arithmetic underflow/overflow|invariant not satisfied|assertion failed",
-                output,
-            )
-        )
-        resource_failure = bool(re.search(r"Resource limit|rlimit.*exceeded|out of memory", output, re.I))
-        passed = (
-            not timeout
-            and not resource_failure
-            and bool(summary)
-            and (
-                status != 0 and errors > 0 and semantic_error
-                if negative
-                else status == 0 and verified >= 69 and errors == 0
-            )
-        )
+        outcome = classify_result(output, status, negative, timeout=timeout)
         report["cases"].append(
             {
                 "name": name,
@@ -7248,9 +7263,8 @@ def main():
                     else "algorithm_negative" if negative else "positive"
                 ),
                 "expected_failure": negative,
-                "verified": verified,
-                "errors": errors,
-                "resource_failure": resource_failure,
+                **outcome,
+                "timed_out": timeout,
                 "exit_status": status,
                 "seconds": time.monotonic() - started,
                 "source_sha256": {path: hashlib.sha256(code.encode()).hexdigest() for path, code in inputs.items()},
@@ -7258,11 +7272,15 @@ def main():
                     path: hashlib.sha256(inputs[path].encode()).hexdigest()
                     for path in environment["environment_sha256"]
                 },
-                "passed": passed,
             }
         )
-        print(f"{'PASS' if passed else 'FAIL'} {name}: {verified} verified, {errors} errors", flush=True)
-        if not passed:
+        kind = "negative: expected rejection" if negative else "positive: proof required"
+        print(
+            f"{'PASS' if outcome['passed'] else 'FAIL'} [{kind}] {name}: "
+            f"{outcome['verified']} verified, {outcome['errors']} errors",
+            flush=True,
+        )
+        if not outcome["passed"]:
             print(output)
     report["passed"] = all(case["passed"] for case in report["cases"])
     (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")

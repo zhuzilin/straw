@@ -41,13 +41,18 @@ def test_unknown_retained_binding_blocks_all_deletion(tmp_path, monkeypatch, err
         cleanup_orphans(root, report, all_participants_stopped=True)
 
 
-@pytest.mark.parametrize("target", ["outside", "cycle"])
+@pytest.mark.parametrize("target", ["outside", "cycle", "indirect_cycle"])
 def test_unknown_candidate_identity_cannot_authorize_cleanup(tmp_path, target):
     root = tmp_path / "pool"
     probe.fixture(root, "manifest_file", 2048, False)
     report = inspect_run(root)
     path = root / "raw/aliases/routes/unknown.partial"
-    path.symlink_to(tmp_path / "outside" if target == "outside" else path)
+    if target == "indirect_cycle":
+        other = root / "other-link"
+        other.symlink_to(path)
+        path.symlink_to(other)
+    else:
+        path.symlink_to(tmp_path / "outside" if target == "outside" else path)
     with pytest.raises((QueueError, OSError, ValueError, RuntimeError)):
         inspect_run(root)
     with pytest.raises((QueueError, OSError, ValueError, RuntimeError)):

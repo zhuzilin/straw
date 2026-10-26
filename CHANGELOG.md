@@ -21,7 +21,7 @@
 ### Garbage collection and publication safety
 
 - Retry directory barriers after unlink, including already absent files and missing parents. Batch shared-parent barriers and persist reclamation receipts only after deletion is durable. Preserve permanent tombstones; a cold-cache retain of a reclaimed root or dependency now returns `InvalidReference` before trying to read its missing payload.
-- Protect canonical paths and aliases, peer queues, active readers, checkpoints, producer continuations and pending publications. Public owner APIs reject internal `queue:` and `publication:` names. Offline cleanup preserves control files and fails closed on uncertain shared-pool discovery.
+- Protect canonical paths and aliases, peer queues, active readers, checkpoints, producer continuations and pending publications. Public owner APIs reject internal `queue:` and `publication:` names. Offline cleanup preserves control files, rejects symlink cycles on Python 3.13 as well as earlier versions, and fails closed on uncertain shared-pool discovery; dangling orphan links remain eligible for cleanup.
 - Preserve dependency holds and retry identities through failed publication setup, synchronization, staging and sealing. Repair missing ancestor barriers, roll back unpublished tails before writer reuse and seal completed standalone reservations so they can be collected. A failed GC hook with partial WAL effects forces fresh recovery before further writes.
 
 ### Writer retirement
@@ -42,7 +42,7 @@
 ### CI and verification
 
 - Scan source distributions and wheel contents, including native libraries, for local paths and recognizable credentials. Remap Rust build paths before compilation so released binaries omit local source, home and toolchain locations; CI checks artifacts before upload and rejects findings without printing matched secrets.
-- Require pinned TLA+/Verus checks, semantic negative controls, environment-contract audits, Rust/Python tests, formatting and Clippy before release builds and publishing. Verification files are organized by protocol, WAL, GC, storage and offline recovery, with independently reviewable environment assumptions.
+- Require TLA+/Verus checks, semantic negative controls, environment-contract audits, Rust/Python tests, formatting and Clippy before release builds and publishing. TLC records its jar hash without enforcing a checksum; Verus logs distinguish successful proofs from expected semantic rejections. Verification files are organized by protocol, WAL, GC, storage and offline recovery, with independently reviewable environment assumptions.
 - Freeze new formal-verification work for this release. Integrated proofs cover specific production bodies and models; complete retain/reactivation, cross-log recovery, authentication and liveness composition remain deferred and receive regression/fault-injection coverage. See the [release scope and boundaries](docs/FORMAL_VERIFICATION.md#verification-scope-for-this-release). Passing tests does not complete these proofs, and prior performance measurements do not establish this build's throughput or latency.
 
 ## 0.1.3

@@ -678,13 +678,14 @@ ownership/GC. Run the checked-in specifications, including negative controls:
 ```sh
 # Requires Java 17+ and Python 3.10+, but no Python straw installation.
 python verification/runners/check_tla.py
-# Offline: provide the same pinned jar, whose SHA-256 is still checked.
+# Offline: provide an existing TLC jar.
 python verification/runners/check_tla.py --jar /path/to/tla2tools.jar --output /tmp/straw-tla
 ```
 
-The runner downloads TLA+ tools from the pinned release URL and verifies its
-SHA-256 before executing it. `target/tla/report.json` records source/configuration
-hashes, state counts, exit status and results. Each case directory preserves its
+The runner downloads TLA+ tools from its configured release URL, or uses `--jar`.
+It records the jar's SHA-256 for provenance without enforcing a checksum.
+`target/tla/report.json` records source/configuration hashes, state counts,
+exit status and results. Each case directory preserves its
 exact `.tla`, `.cfg` and `tlc.log`, including counterexamples. `--case NAME` selects
 a case; omit it for the full gate. The default timeout is 300 seconds per case.
 A timeout, parse error, unexpected invariant or missing counterexample fails the

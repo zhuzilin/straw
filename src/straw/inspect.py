@@ -32,8 +32,8 @@ def _require_standalone(root):
         )
 
 
-def _reference_bindings(root, relative):
-    """Trace existing POSIX bindings, including links and paths before '..'.
+def _resolve_reference(root, relative, *, allow_missing=False):
+    """Resolve POSIX bindings, including links and paths before '..'.
 
     The caller separately checks the final in-pool identity. Namespace bindings
     must remain stable throughout inspection and cleanup; this is not fencing.
@@ -50,7 +50,7 @@ def _reference_bindings(root, relative):
             try:
                 target = Path(os.readlink(current))
             except OSError as error:
-                if error.errno != errno.EINVAL:
+                if error.errno != errno.EINVAL and not (allow_missing and error.errno == errno.ENOENT):
                     raise
             else:
                 links += 1
@@ -58,7 +58,11 @@ def _reference_bindings(root, relative):
                     raise UnsafeRecovery("Too many reference symlinks")
                 current = Path(target.anchor) if target.is_absolute() else current.parent
                 pending.extendleft(reversed(target.parts[1:] if target.is_absolute() else target.parts))
-    return {path.relative_to(root).as_posix() for path in bindings if path.is_relative_to(root)}
+    return current, {path.relative_to(root).as_posix() for path in bindings if path.is_relative_to(root)}
+
+
+def _reference_bindings(root, relative):
+    return _resolve_reference(root, relative)[1]
 
 
 def inspect_run(root):
@@ -73,7 +77,11 @@ def inspect_run(root):
 
     def identity_of(relative):
         if relative not in identities:
-            identities[relative] = backend.path(relative).resolve().relative_to(backend.root).as_posix()
+            # Dangling candidates are allowed, but symlink loops must fail on
+            # every Python version (3.13+ non-strict Path.resolve hides them).
+            backend.path(relative)
+            resolved, _ = _resolve_reference(backend.root, relative, allow_missing=True)
+            identities[relative] = resolved.relative_to(backend.root).as_posix()
         return identities[relative]
 
     def protect(relative):

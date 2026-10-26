@@ -21,7 +21,7 @@
 ### GC 与发布安全
 
 - unlink 后重试目录持久化屏障，包括文件已不存在或父目录缺失的情况。共享父目录的屏障合并执行，持久删除完成后才记录回收回执。永久保留 tombstone；冷缓存 retain 遇到已回收的根或依赖时，在读取缺失 payload 前返回 `InvalidReference`。
-- 保护规范路径及别名、其他队列、活跃 reader、checkpoint、producer continuation 和未完成 publication。公共 owner API 拒绝内部 `queue:`、`publication:` 名字。离线清理保留控制文件，共享池发现结果不确定时拒绝继续删除。
+- 保护规范路径及别名、其他队列、活跃 reader、checkpoint、producer continuation 和未完成 publication。公共 owner API 拒绝内部 `queue:`、`publication:` 名字。离线清理保留控制文件，在 Python 3.13 及更早版本中均拒绝符号链接环，共享池发现结果不确定时拒绝继续删除；无引用的悬空链接仍可清理。
 - 发布准备、同步、staging、sealing 失败时保留依赖保护和重试身份。补齐缺失的祖先目录屏障，writer 复用前回滚未发布尾部，并封存已完成的 standalone reservation 以便 GC。GC hook 报错且已影响 WAL 时，后续写入必须先重新恢复。
 
 ### Writer 退休
@@ -42,7 +42,7 @@
 ### CI 与验证边界
 
 - 扫描源码分发包与 wheel 内容（包括原生库），检查本机路径和可识别的凭据。编译时 remap Rust 路径，避免发布二进制携带本机源码、用户目录和工具链位置；CI 上传产物前检查，发现问题即拒绝，报告不输出命中的秘密内容。
-- release 构建和发布以前置检查为条件，包括固定版本的 TLA+／Verus、语义负例、environment contract 审计、Rust／Python 测试、格式和 Clippy。验证目录按协议、WAL、GC、存储与离线恢复组织，环境假设可独立审查。
+- release 构建和发布以前置检查为条件，包括 TLA+／Verus、语义负例、environment contract 审计、Rust／Python 测试、格式和 Clippy。TLC 只记录 jar 哈希、不做校验；Verus 日志明确区分证明通过与预期语义拒绝。验证目录按协议、WAL、GC、存储与离线恢复组织，环境假设可独立审查。
 - 本次发布冻结新增形式化验证。已集成证明覆盖具体生产函数和模型；完整 retain／reactivation、跨日志恢复、认证与活性组合延期，以回归和故障注入测试覆盖。见[本次发布范围与边界](docs/FORMAL_VERIFICATION_zh.md#本次发布的验证范围)。测试通过不等于这些证明已完成，历史性能测量也不能代表当前构建的吞吐或延迟。
 
 ## 0.1.3

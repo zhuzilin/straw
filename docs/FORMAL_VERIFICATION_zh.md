@@ -520,11 +520,11 @@ straw 使用 TLA+ 和 TLC 检查已发布 extent 的读取、所有权转移与 
 ```sh
 # 需要 Java 17+、Python 3.10+；不需要安装 Python straw 包。
 python verification/runners/check_tla.py
-# 离线运行：提供相同的固定版本 jar，仍然校验 SHA-256。
+# 离线运行：提供已有的 TLC jar。
 python verification/runners/check_tla.py --jar /path/to/tla2tools.jar --output /tmp/straw-tla
 ```
 
-运行器从固定 release URL 下载 TLA+ 工具，校验 SHA-256 后才执行。`target/tla/report.json` 记录规范/配置哈希、状态数、退出码和结果。每个案例目录保留实际执行的 `.tla`、`.cfg`、`tlc.log`，包括反例轨迹。`--case NAME` 选择单个案例；完整检查不传此参数。每个案例默认限时 300 秒。超时、解析错误、非预期不变量失败、缺失反例都会使检查失败。安全负向对照必须以 TLC 不变量违反退出（退出码 12），且包含指定不变量和状态轨迹。CI 执行完整检查并上传证据。
+运行器从 release URL 下载 TLA+ 工具，也可通过 `--jar` 使用已有文件；只记录 jar 的 SHA-256 供溯源，不做哈希校验。`target/tla/report.json` 记录规范/配置哈希、状态数、退出码和结果。每个案例目录保留实际执行的 `.tla`、`.cfg`、`tlc.log`，包括反例轨迹。`--case NAME` 选择单个案例；完整检查不传此参数。每个案例默认限时 300 秒。超时、解析错误、非预期不变量失败、缺失反例都会使检查失败。安全负向对照必须以 TLC 不变量违反退出（退出码 12），且包含指定不变量和状态轨迹。CI 执行完整检查并上传证据。
 
 TLC 提供有限状态模型检查，不是 TLAPS 归纳证明，也不证明 Rust 对 TLA+ 的细化。下面的 Verus 层单独覆盖部分 Rust 函数和无界模型性质。任何一层都不能据此宣称所有 API 没有 bug；部署假设仍需单独验证。
 

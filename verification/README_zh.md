@@ -29,9 +29,11 @@ python verification/runners/check_tla.py --area wal --area gc --jar /path/to/tla
 python verification/runners/check_verus.py --verus /path/to/verus
 ```
 
-运行器会核对工具版本／哈希。环境准备、证据层级和未证明边界见[形式化验证](../docs/FORMAL_VERIFICATION_zh.md)，契约审查见[环境模型](../docs/ENVIRONMENT_MODELS_zh.md)，部署条件与探针命令见[文件系统测量](../docs/FILESYSTEM_zh.md)。Cargo example 名称不变，例如 `cargo run --release --example positioned_extent_probe`。
+Verus 运行器核对固定的工具版本／哈希；TLC 只记录 jar 哈希，不做校验。环境准备、证据层级和未证明边界见[形式化验证](../docs/FORMAL_VERIFICATION_zh.md)，契约审查见[环境模型](../docs/ENVIRONMENT_MODELS_zh.md)，部署条件与探针命令见[文件系统测量](../docs/FILESYSTEM_zh.md)。Cargo example 名称不变，例如 `cargo run --release --example positioned_extent_probe`。
 
 按功能的布局取代了此前仅按工具划分的目录，不保留重复兼容副本。TLA 模块名在全库内保持唯一，运行器为每个案例装配声明的环境依赖。CI、测试、打包清单和当前文档使用功能路径；历史摘要保留原运行输入的路径与哈希。
+
+Verus 日志把正常代码标为 `positive: proof required`，必须零错误通过；`negative: expected rejection` 表示故意破坏代码或环境契约的副本，此处 PASS 说明 Verus 按预期以语义证明错误拒绝了该副本。负例意外验证成功、编译／工具失败、超时或资源耗尽都会使检查失败。
 
 历史测量 JSON 是公开脱敏摘要：内部主机标识和私有工件位置已删除。保留的哈希标识当时运行输入，公开 JSON 本身不是原始证明工件。当前检查可用上面的运行器复现；历史源码快照可能不同。旧探针与负例即使不在默认测试集合中，仍用于复现记录过的故障。判断源码是否无用时，需要检查测试、调用者、配套故障 shim、环境证据及测量用途。Python 缓存和生成日志可以丢弃，不进入源码包。
 

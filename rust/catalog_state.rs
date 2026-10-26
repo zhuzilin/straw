@@ -232,6 +232,8 @@ impl Indexes {
                 reveal(run); reveal(accepted);
                 assert(ops@.take(i + 1).drop_last() == ops@.take(i as int));
             }
+            // Keep the condition beside its proof block and semantic mutation controls.
+            #[allow(clippy::collapsible_match)]
             match &ops[i] {
                 Operation::Mark(path) => {
                     marked.insert(path.clone());
