@@ -1884,11 +1884,9 @@ fn extent_observer<W: FnMut(u64)>(
     crate::extent_retry::Observe::new(ExtentLog(segment), ExtentWait(wait))
 }
 struct ExtentCall<F>(F);
-impl<T, F: FnMut() -> Result<T>> crate::extent_retry::CallableModel for ExtentCall<F> {
+impl<T, F: FnMut() -> Result<T>> crate::extent_retry::Attempt for ExtentCall<F> {
     type Output = T;
     type Error = Error;
-}
-impl<T, F: FnMut() -> Result<T>> crate::extent_retry::Callable for ExtentCall<F> {
     fn read(&mut self) -> std::result::Result<T, crate::extent_retry::Failure<Error>> {
         (self.0)().map_err(extent_failure)
     }
@@ -1902,7 +1900,7 @@ fn retry_extent_with_wait<T>(
     wait: impl FnMut(u64),
 ) -> Result<T> {
     crate::extent_retry::run(
-        &mut crate::extent_retry::Calls::new(ExtentCall(read)),
+        &mut ExtentCall(read),
         &mut extent_observer(segment, wait),
         &EXTENT_VISIBILITY_DELAYS_MS,
     )
@@ -1961,27 +1959,27 @@ impl crate::namespace_step::Model for NamespaceBackend {
     type Error = Error;
 }
 impl crate::namespace_step::Primitives for NamespaceBackend {
-    fn root(&self, _prefix: &String) -> PathBuf {
+    fn root(&self, _prefix: &str) -> PathBuf {
         self.root.to_path_buf()
     }
-    fn cached(&self, _prefix: &String, identity: &String) -> PathBuf {
+    fn cached(&self, _prefix: &str, identity: &str) -> PathBuf {
         self.root.join(identity)
     }
-    fn child(&self, base: &PathBuf, component: &str, _prefix: &String) -> PathBuf {
+    fn child(&self, base: &PathBuf, component: &str, _prefix: &str) -> PathBuf {
         base.join(component)
     }
     fn child_link(
         &mut self,
         _base: &PathBuf,
         candidate: &PathBuf,
-        _prefix: &String,
+        _prefix: &str,
     ) -> std::io::Result<PathBuf> {
         fs::read_link(candidate)
     }
     fn join(&self, base: &PathBuf, target: PathBuf) -> PathBuf {
         base.join(target)
     }
-    fn relative(&self, path: &PathBuf, _prefix: &String) -> Result<String> {
+    fn relative(&self, path: &PathBuf, _prefix: &str) -> Result<String> {
         path.strip_prefix(&self.root)
             .ok()
             .and_then(Path::to_str)

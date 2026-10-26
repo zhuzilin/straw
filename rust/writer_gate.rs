@@ -390,10 +390,6 @@ pub(crate) struct Registry {
     retired_results: Vec<Value>,
 }
 impl Registry {
-    #[allow(
-        clippy::collapsible_if,
-        reason = "Keep the verified branches, owned-state contracts and mutation-control anchors explicit."
-    )]
     fn open(root: &Path, identity: &Value, read_only: bool, fault: &mut Fault<'_>) -> Result<Self> {
         let journal = Journal::open(root, identity, true, read_only, &mut |point| {
             fault(&format!("writer_registry:{point}"))
@@ -409,13 +405,13 @@ impl Registry {
         }
         let prefix = format!("publication:{}:", field(identity, "writer_id")?);
         for op in &operations {
-            if let Some(owner) = &op.evidence.owner {
-                if !owner.starts_with(&prefix) || &op.evidence.key != owner {
-                    return fail(
-                        "CorruptData",
-                        "Writer operation owner belongs to another incarnation",
-                    );
-                }
+            if let Some(owner) = &op.evidence.owner
+                && (!owner.starts_with(&prefix) || &op.evidence.key != owner)
+            {
+                return fail(
+                    "CorruptData",
+                    "Writer operation owner belongs to another incarnation",
+                );
             }
         }
         Ok(Self {

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "straw-queue"
-version = "0.1.4"
+version = "0.1.5"
 description = "Rust durable queues for AI tensors and large immutable records"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,6 +38,7 @@ features = ["python"]
 locked = true
 include = [
     { path = "docs/**/*.md", format = "sdist" },
+    { path = ".agents/skills/straw-protocol-review/**", format = "sdist" },
     { path = "examples/*.py", format = "sdist" },
     { path = "tests/**", format = "sdist" },
     { path = "verification/**/*.md", format = "sdist" },
@@ -45,7 +46,9 @@ include = [
     { path = "verification/**/*.rs", format = "sdist" },
     { path = "verification/**/*.c", format = "sdist" },
     { path = "verification/environment_contracts.json", format = "sdist" },
-    { path = "verification/measurements/*.json", format = "sdist" },
+    { path = "verification/measurements/20261026-release-comparison.json", format = "sdist" },
+    { path = "verification/measurements/20261026-release-100gb.json", format = "sdist" },
+    { path = "verification/measurements/20261026-release-visibility.json", format = "sdist" },
     { path = "verification/**/tla/*.tla", format = "sdist" },
     { path = "verification/**/tla/*.cfg", format = "sdist" },
     { path = "tools/*.py", format = "sdist" },

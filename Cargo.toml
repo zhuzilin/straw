@@ -1,6 +1,6 @@
 [package]
 name = "straw"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -9,8 +9,9 @@ description = "Durable shared-filesystem queues and immutable packed records"
 include = [
     "Cargo.toml", "Cargo.lock", "pyproject.toml", "README*.md", "LICENSE",
     "CHANGELOG*.md", "CONTRIBUTING*.md", ".github/workflows/*.yml",
+    ".agents/skills/straw-protocol-review/**",
     "rust/*.rs", "src/**/*.py", "docs/**/*.md", "examples/*.py",
-    "tests/*.py", "tests/native.rs", "verification/**/*.md", "verification/**/*.py", "verification/**/*.rs", "verification/**/*.c", "verification/environment_contracts.json", "verification/measurements/*.json", "verification/**/tla/*.tla", "verification/**/tla/*.cfg", "tools/*.py",
+    "tests/*.py", "tests/native.rs", "verification/**/*.md", "verification/**/*.py", "verification/**/*.rs", "verification/**/*.c", "verification/environment_contracts.json", "verification/measurements/20261026-release-comparison.json", "verification/measurements/20261026-release-100gb.json", "verification/measurements/20261026-release-visibility.json", "verification/**/tla/*.tla", "verification/**/tla/*.cfg", "tools/*.py",
 ]
 
 [lib]
@@ -31,9 +32,6 @@ pyo3 = { version = "0.23.5", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27"
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(straw_verus)"] }
 
 [[example]]
 name = "large_extent_probe"

@@ -19,7 +19,7 @@ straw currently serves the rollout and training pipelines in
 **[slime](https://github.com/THUDM/slime)**, including rollout-to-rollout and
 rollout-to-training queues that share tensor storage. It is an independent AI
 application library, also suited to preprocessing and inference pipelines. See
-the [design rationale](docs/DESIGN.md) and [application integration](docs/APPLICATIONS.md).
+the [design rationale](docs/DESIGN.md) and [application integration](docs/USAGE.md#integration).
 
 ## Multi-machine parallel reads and writes
 
@@ -30,7 +30,7 @@ results and consumer progress, and coordinates shared ownership and GC through
 cross-client catalog locks. Reader pins and explicit completion signals protect
 data until every consumer has finished. See the
 [concurrency rules](docs/USAGE.md#concurrency-processes-and-threads) and
-[protocol](docs/PROTOCOL_AND_VERIFICATION.md).
+[protocol](docs/DESIGN.md).
 
 ## Avoid the small-file bottleneck
 
@@ -44,7 +44,7 @@ File counts grow with packs and writer lifetimes instead of individual samples;
 **Status:** early release, Linux/POSIX. One externally fenced coordinator per
 queue; no automatic leader election or journal/live-pack compaction. Applications
 must provide real reader-completion signals before reclamation. See
-[filesystem requirements](docs/FILESYSTEM.md) and [protocol guarantees](docs/PROTOCOL_AND_VERIFICATION.md).
+[filesystem requirements](docs/FILESYSTEM.md) and [protocol guarantees](docs/DESIGN.md).
 
 ## Install
 
@@ -58,7 +58,7 @@ pip selects a compatible wheel containing the Rust extension.
 **Installing a wheel does not require Rust or maturin.**
 NumPy and PyTorch are runtime dependencies; an existing compatible PyTorch
 installation can be reused. Distribution name: `straw-queue`; import: `straw`.
-See [supported platforms, offline installation and source builds](docs/BUILDING.md).
+See [supported platforms, offline installation and source builds](CONTRIBUTING.md#build).
 
 ## Write, read, keep, reclaim
 
@@ -145,33 +145,19 @@ workers stop. [Multi-host benchmarks and trace replay](docs/BENCHMARKS.md).
 
 ## Read next
 
-- [Rationale and architecture](docs/DESIGN.md)
-- [Records, tensors, tasks, recovery and GC](docs/USAGE.md)
-- [Filesystem deployment and file-count planning](docs/FILESYSTEM.md)
-- [Protocol, prior work and correctness boundaries](docs/PROTOCOL_AND_VERIFICATION.md)
-- [TLA+ / Verus verification](docs/FORMAL_VERIFICATION.md): layered coverage, production Rust proofs and counterexamples
-- [Executable verification](docs/VERIFICATION.md) and [binary format](docs/FORMAT.md)
-- [Wheel builds and release checks](docs/BUILDING.md)
-- [Release notes](CHANGELOG.md)
-- [Application integration](docs/APPLICATIONS.md) and [contributing](CONTRIBUTING.md)
+- [Design and protocol spec](docs/DESIGN.md): architecture, premises, distributed protocol/WAL/GC and model-to-code correspondence
+- [Usage](docs/USAGE.md): installation, APIs, recovery and application integration
+- [Filesystem deployment](docs/FILESYSTEM.md): mount requirements, storage planning and multi-client checks
+- [Benchmarks](docs/BENCHMARKS.md): measurement, trace replay and selected public results
+- [Binary format](docs/FORMAT.md): compatible readers and format changes
+- [Contributing](CONTRIBUTING.md): tests, builds and releases; [changelog](CHANGELOG.md)
 
-## Build and test on GitHub
-
-- [Full tests](.github/workflows/tests.yml): Rust tests, formatting and Clippy,
-  plus the complete Python suite, ownership model, crash campaign, examples and
-  bounded I/O/GC benchmark against installed wheels on CPython 3.10–3.13.
-- [Wheels](.github/workflows/wheels.yml): build and verify Linux x86_64 wheels
-  for CPython 3.10–3.13 (manylinux/glibc 2.28+), plus a source archive and rebuild
-  check. Download the outputs from the run's **Artifacts** section. Version-tag
-  pushes publish the verified artifacts to PyPI through Trusted Publishing. The
-  same-commit complete verification workflow must pass before package uploads.
-
-Both workflows support **Actions → select workflow → Run workflow**. Tests also
-run on pushes and pull requests; wheels run on pull requests and `v*` tags.
-Hosted CI uses a local filesystem and CPU PyTorch; deployment qualification on
-multiple JuiceFS clients and GPU training use [separate checks](docs/VERIFICATION.md).
-See [build and release instructions](docs/BUILDING.md).
+The [tests](.github/workflows/tests.yml) and [wheels](.github/workflows/wheels.yml)
+workflows provide CI checks and downloadable artifacts; version tags publish
+tested artifacts. See [contributing](CONTRIBUTING.md#release) for setup and release steps.
 
 ## License
 
 [MIT](LICENSE).
+
+[straw-protocol-review skill](.agents/skills/straw-protocol-review/SKILL.md): review document → TLA+ → implementation.

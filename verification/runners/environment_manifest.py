@@ -81,67 +81,23 @@ def load_environment():
     # An omitted consumer must not silently disappear from impact reports.
     sources = tla_sources()
     models = {name for name in sources if not name.startswith("Environment")}
-    if set(registry["models"]) != models | {"Verus"}:
-        raise ValueError("Environment registry must enumerate every TLA consumer and Verus")
+    if set(registry["models"]) != models:
+        raise ValueError("Environment registry must enumerate every TLA consumer")
     for name, spec in registry["models"].items():
         if not set(unique_strings(spec["contracts"], f"{name}.contracts")) <= contracts.keys():
             raise ValueError(f"Unknown environment contract in {name}")
         for path in unique_strings(spec["environment_modules"], f"{name}.environment_modules"):
             checked_path(path)
-        if name != "Verus":
-            source = sources[name].read_text()
-            extended = re.search(r"(?m)^EXTENDS ([^\n]+)", source)
-            if extended is None:
-                raise ValueError(f"Missing supported EXTENDS declaration in {name}")
-            imported = {s.strip() for s in extended[1].split(",") if s.strip().startswith("Environment")}
-            declared = {Path(p).stem for p in spec["environment_modules"] if Path(p).suffix == ".tla"}
-            if imported != declared:
-                raise ValueError(f"Environment imports/registry disagree for {name}: {imported} != {declared}")
-            if len(declared) != len(spec["environment_modules"]):
-                raise ValueError(f"Unexpected environment module path in {name}")
-        elif spec["environment_modules"] != [
-            "verification/common/verus/environment.rs",
-            "rust/wal_device.rs",
-            "verification/common/verus/serde_json.rs",
-            "verification/common/verus/collections.rs",
-            "rust/catalog_decode.rs",
-            "rust/protocol.rs",
-            "rust/gc_batch.rs",
-            "rust/catalog_target.rs",
-            "rust/closure.rs",
-            "rust/closure_node.rs",
-            "rust/wal_source.rs",
-            "rust/wal_sink.rs",
-            "rust/catalog_transaction.rs",
-            "rust/gc_io.rs",
-            "rust/directory_io.rs",
-            "rust/queue_application.rs",
-            "rust/writer_retirement.rs",
-            "rust/namespace_identity.rs",
-            "rust/namespace_target.rs",
-            "rust/queue_gc.rs",
-            "rust/catalog_namespace.rs",
-            "rust/gc_collection.rs",
-            "rust/namespace_step.rs",
-            "rust/file_primitives.rs",
-            "rust/file_adapter.rs",
-            "rust/writer_gate_flow.rs",
-            "rust/writer_ownership.rs",
-            "rust/queue_gc_prepare.rs",
-            "rust/catalog_primitives.rs",
-            "rust/catalog_runtime.rs",
-            "rust/queue_progress.rs",
-            "rust/journal_owner.rs",
-            "rust/journal_primitives.rs",
-            "rust/reference_validation.rs",
-            "rust/staging_consumption.rs",
-            "rust/catalog_gc.rs",
-            "rust/reference_node.rs",
-            "rust/record_manifest.rs",
-            "rust/record_index.rs",
-            "rust/extent_retry.rs",
-        ]:
-            raise ValueError("Verus must declare shared, I/O, decoder and library environment modules")
+        source = sources[name].read_text()
+        extended = re.search(r"(?m)^EXTENDS ([^\n]+)", source)
+        if extended is None:
+            raise ValueError(f"Missing supported EXTENDS declaration in {name}")
+        imported = {s.strip() for s in extended[1].split(",") if s.strip().startswith("Environment")}
+        declared = {Path(p).stem for p in spec["environment_modules"] if Path(p).suffix == ".tla"}
+        if imported != declared:
+            raise ValueError(f"Environment imports/registry disagree for {name}: {imported} != {declared}")
+        if len(declared) != len(spec["environment_modules"]):
+            raise ValueError(f"Unexpected environment module path in {name}")
     return registry
 
 

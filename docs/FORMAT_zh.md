@@ -126,7 +126,7 @@ trailer = sha256(header | body) | "STRGEND1"
 
 命名空间队列元数据位于 `queues/<sha256(JSON(queue_id))>/`，载荷引用仍相对于公共池根。队列存储 owner 前缀包含控制根身份，只有该队列可对自己的前缀做状态协调。Checkpoint、显式 reader、staging 和其他队列所有者相互独立。队列 lease 还在可重放状态中保留输入读取根；超时、取消和 epoch 变化后继续保留，直到实际读取完成或确认 worker 退役。
 
-持久化顺序、文件系统假设、重放保留终止及已知安全泄漏情况，见[协议与验证](PROTOCOL_AND_VERIFICATION_zh.md)。
+持久化顺序、文件系统假设、重放保留终止及已知安全泄漏情况，见[协议与验证](DESIGN_zh.md)。
 
 目录名称存在不等于持久。每次目录准备均创建所需目录、解析路径并同步从叶子到文件系统根的完整祖先链；失败后重试也不能跳过已存在名称。命名空间／别名／挂载必须稳定，所有实际祖先都需要可打开同步。文件及其直接父目录的同步不能替代祖先目录项屏障。
 
@@ -136,7 +136,7 @@ trailer = sha256(header | body) | "STRGEND1"
 
 完整 publication 的私有描述必须在尝试文件 sync 前保留；同 writer 重试复用该描述，未知同步结果需要补做文件屏障，再完成独立文件 rename／目录持久化。可沿用已确认的文件同步，但重试仍校验完整 extent；pending 期间拒绝另一个新身份。这是完整 framing 之后的进程内恢复，不恢复任意更早的部分写入，也不复活已放弃 writer 的描述。历史孤立 partial／open 项继续保留。
 
-GC catalog 路径 key 对池内稳定符号链接使用解析后的相对路径身份；所有权闭包、`packs`、`deleted`、`reclaimed` 均归一化。Replay 也归一化旧原始写法，包括目标已 unlink 的名称。Frame 布局不变，不重写旧字节；公开引用和 staging owner 摘要仍沿用原编码。相关别名／前缀必须在历史重放期间保持稳定；原先缺失的私有前缀允许创建为普通目录／文件。所有 GC collector 都需要修复后的策略，旧 collector 仍可能删除别名 owner 持有的文件。这不是 inode／bind mount 身份统一，也不修复已丢失数据，见[命名空间环境契约](ENVIRONMENT_MODELS_zh.md#命名空间契约与实现边界)。
+GC catalog 路径 key 对池内稳定符号链接使用解析后的相对路径身份；所有权闭包、`packs`、`deleted`、`reclaimed` 均归一化。Replay 也归一化旧原始写法，包括目标已 unlink 的名称。Frame 布局不变，不重写旧字节；公开引用和 staging owner 摘要仍沿用原编码。相关别名／前缀必须在历史重放期间保持稳定；原先缺失的私有前缀允许创建为普通目录／文件。所有 GC collector 都需要修复后的策略，旧 collector 仍可能删除别名 owner 持有的文件。这不是 inode／bind mount 身份统一，也不修复已丢失数据，见[命名空间环境契约](DESIGN_zh.md#environment)。
 
 ### 已记录的命名空间编码
 

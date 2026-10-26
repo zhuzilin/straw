@@ -1,0 +1,4 @@
+interface:
+  display_name: "straw 协议审查"
+  short_description: "Review straw docs, TLA+ models and implementation consistency"
+  default_prompt: "Use $straw-protocol-review to review the affected protocol flows, compare docs to TLA+ and TLA+ to implementation, and validate any fixes with relevant evidence."

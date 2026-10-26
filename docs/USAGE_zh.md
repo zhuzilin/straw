@@ -2,7 +2,17 @@
 
 [English](USAGE.md)
 
-先安装匹配的 [wheel](BUILDING_zh.md)。下面使用公开 Python API；存储和队列协议由 Rust crate 实现。[Examples](../examples) 中提供了仅需 CPU 的完整程序。
+公开 Python API 的存储和队列协议由 Rust crate 实现；[Examples](../examples) 提供 CPU 可运行程序。
+
+<a id="install"></a>
+
+## 安装
+
+```sh
+python -m pip install straw-queue
+```
+
+支持的平台会安装包含 Rust 扩展的 wheel，无需 Rust 工具链。发布目标为 Linux x86_64、CPython 3.10–3.13、glibc 2.28+；以实际 wheel tag 为准，`cp312` 不能用于 Python 3.10。离线安装用 `python -m pip install ./straw_queue-*.whl`，目录中只放兼容版本。按需要先安装 CPU/CUDA PyTorch；NumPy/PyTorch 是运行时依赖。其他平台或源码开发见[贡献指南](../CONTRIBUTING_zh.md#build)。
 
 ## 打开存储池
 
@@ -30,7 +40,7 @@ store = SharedFilesystemStore(
 
 ## 进程与线程并发
 
-已发布的 extent 不可变，但共享文件系统的 reader 可能先看到长度或 header，后看到其他已提交字节。短读、header 的全零/部分零空缺，以及 footer/索引/envelope/payload/chunk 校验失败，会重新打开文件重试。单次 extent/record/range 读取的全部校验阶段共用五次等待：100、250、500、1000、2000 ms。返回的 record/chunk 仍必须通过认证；持续失败返回 `CorruptData`。非零坏 header、身份/schema 错误与其他 I/O 错误不进入此重试。因此，checksum 损坏可能在完整重试窗口后才报告。等待时间不构成文件系统 I/O 截止时间，依赖遍历可能执行多次分别受限的读取。此行为覆盖 store 和 read session 入口，正常读取没有额外 I/O。参见 [TLA+ 规范](FORMAL_VERIFICATION_zh.md)，不要在应用层叠加无界的损坏错误重试。
+已发布的 extent 不可变，但共享文件系统的 reader 可能先看到长度或 header，后看到其他已提交字节。短读、header 的全零/部分零空缺，以及 footer/索引/envelope/payload/chunk 校验失败，会重新打开文件重试。单次 extent/record/range 读取的全部校验阶段共用五次等待：100、250、500、1000、2000 ms。返回的 record/chunk 仍必须通过认证；持续失败返回 `CorruptData`。非零坏 header、身份/schema 错误与其他 I/O 错误不进入此重试。因此，checksum 损坏可能在完整重试窗口后才报告。等待时间不构成文件系统 I/O 截止时间，依赖遍历可能执行多次分别受限的读取。此行为覆盖 store 和 read session 入口，正常读取没有额外 I/O。参见 [TLA+ 规范](DESIGN_zh.md#review)，不要在应用层叠加无界的损坏错误重试。
 
 API 是同步的，straw 不会启动 I/O 进程池。应用可从多个进程、多台机器访问同一个池。每个 writer 需要独立的 store 实例和 pack 写入流，并在多次发布之间复用实例。不要将可变 store/coordinator 对象跨 fork 继承后继续使用。
 
@@ -164,7 +174,7 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 
 `queue.snapshot()` 是检查用产物，不是权威启动 checkpoint，也不会传递性地 pin 数据。队列始终从日志恢复。高级 `register_checkpoint` 的 batch checkpoint schema 见[格式文档](FORMAT_zh.md)，它仍要求应用完成最终提交。
 
-所有存储/协调器调用都是同步的，异步应用应使用有界 executor。控制通道由应用选择；`straw.rpc` 中的小型 JSON HTTP 通道面向示例和私有任务网络，不是托管的多租户服务。详见[应用集成](APPLICATIONS_zh.md)。
+所有存储/协调器调用都是同步的，异步应用应使用有界 executor。控制通道由应用选择；`straw.rpc` 中的小型 JSON HTTP 通道面向示例和私有任务网络，不是托管的多租户服务。详见[应用集成](USAGE_zh.md#integration)。
 
 ### 重启后分别续上什么
 
@@ -222,7 +232,7 @@ receipt = peer.publication_receipt(
 
 查询只读回执，不增加 staging 或改变所有权。旧引用可能已被合法消费并由 GC 回收，查询不会恢复数据或重新取得保护。对于未完成的已登记发布，`peer.retire_writer(writer_id, policy="recover")` 会先 fencing，将完整结果恢复为 staging，再 seal 该 writer 的 reservation。仍然持锁的 writer 返回 `WriterBusy`；被 fencing 的旧 writer 恢复运行后会收到 `WriterFenced`，后续发布需要创建新 writer。显式 `policy="abandon"` 放弃未完成操作，同时保留已有 queue、reader 和 staging 根。无法确认来源的历史准备 owner 会被保留并报告错误。
 
-退休依赖部署满足 gate 锁、锁交接后的 fence 读取一致性和在途操作排空契约，详见[环境模型](ENVIRONMENT_MODELS_zh.md)。PID、心跳和 lease 超时都不构成死亡或排空证据。
+退休依赖部署满足 gate 锁、锁交接后的 fence 读取一致性和在途操作排空契约，详见[环境模型](DESIGN_zh.md#environment)。PID、心跳和 lease 超时都不构成死亡或排空证据。
 
 
 ### 释放 publication 的重试
@@ -235,4 +245,14 @@ receipt = peer.publication_receipt(
 
 `TensorRef.load()`、切片和 `validate()` 在分配／读取 payload 前，将引用中的 dtype、shape 和字节长度与已认证的 envelope 绑定。错误引用报 `CorruptData`；不会为发现字段不匹配先读取整个大 tensor。空切片也校验引用，因此可能执行元数据 I/O，并报告引用不匹配或存储错误；不能用空切片证明文件没有被访问。相同字段的旧记录继续按已编码的 checksum 粒度读取。
 
-低层 `store.read_tensor_range(ref, start, stop, expected=...)` 和 read session 同名方法可选接收 `{"dtype": ..., "shape": [...], "length": ...}`，只要求这些字段与 envelope 一致。省略时保留原来的字节区间 API。`TensorRef` 另外校验自身的 shape／字节数关系；该 Python 校验、JSON／FFI 和完整调用顺序尚未被 Verus 证明。提前拒绝的保证针对 payload，元数据读取、解析和分配仍有成本。
+低层 `store.read_tensor_range(ref, start, stop, expected=...)` 和 read session 同名方法可选接收 `{"dtype": ..., "shape": [...], "length": ...}`，只要求这些字段与 envelope 一致。省略时保留原来的字节区间 API。`TensorRef` 另外校验自身的 shape／字节数关系；该 Python 校验、JSON／FFI 和完整调用顺序尚未被 有限协议模型 证明。提前拒绝的保证针对 payload，元数据读取、解析和分配仍有成本。
+
+<a id="integration"></a>
+
+## 应用集成
+
+通过已有控制通道交换 JSON 引用，把自定义 codec、调度、组 batch、转换和框架 adapter 放在使用方。用显式带版本 schema 编码样本／session，拒绝未知版本，不静默 import 或 pickle 任意类。每进程复用长期 writer，独立发布大张量，共享数据用 dependencies，批量描述符用 `from_record_set_many`；增量保存中间状态，避免反复复制完整缓冲区。
+
+Rollout 的路由／分数采集必须完整、一致后才能发布 continuation，不能仅以 token 生成结束为准。所有必要消费者完成后才确认原始输出，全部训练 rank 读完后才确认 ready batch。应用监督进程应锁存并传播后台 GC 失败、停止接收新任务、保留不确定存储，并对远端在途工作实施 fencing。
+
+联合 checkpoint 的提交与回退遵循 [C4](DESIGN_zh.md#c4)：包含模型／优化器／RNG 和匹配队列视图，保留 pending／buffered／prefetched 依赖及 post-checkpoint replay owner；不能只用 latest 标记或队列确认代替。重启 API 见[恢复说明](#重启后分别续上什么)。应用集成测试应覆盖真实 schema、中断续跑、共享张量、多 reader 完成信号与整任务恢复。

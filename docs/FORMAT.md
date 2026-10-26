@@ -286,7 +286,7 @@ Queue leases also retain input-read roots in replayed queue state. Timeout,
 cancellation and epoch change preserve those roots until actual read completion
 or confirmed worker retirement.
 
-See [PROTOCOL_AND_VERIFICATION.md](PROTOCOL_AND_VERIFICATION.md) for the ordering,
+See [the protocol spec](DESIGN.md) for the ordering,
 filesystem assumptions, expiration of replay and known safe-leak cases.
 
 An internal `publication:<writer>:<id>` owner accumulates the union of roots
@@ -322,7 +322,7 @@ Relevant aliases/prefixes must remain stable for history replay; absent private
 prefixes may be created as ordinary directories/files. All GC collectors must use
 the repaired policy: an old collector can still delete an aliased owned file.
 This is not inode/bind-mount unification or repair of already lost data. See
-[the namespace environment contract](ENVIRONMENT_MODELS.md#namespace-contract-and-the-implementation-boundary).
+[the namespace environment contract](DESIGN.md#environment).
 
 ### Recorded namespace encoding
 

@@ -1,5 +1,5 @@
 //! Position-dependent payloads, independent of a repeated source pattern.
-//! This measurement harness is not part of the Verus-proved production core.
+//! This measurement harness exercises production reads; it is not a protocol model.
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fs, io::Read, sync::Arc, time::Instant};

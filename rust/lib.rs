@@ -65,19 +65,17 @@ mod queue_receipt;
 mod queue_replay;
 mod queue_retirement;
 mod queue_roots;
-mod record_manifest;
-mod reference_node;
-mod reference_validation;
-mod staging_consumption;
-// Explicit error branches in verified replay carry erased prefix proofs.
-#[allow(clippy::question_mark)]
 mod queue_state;
 mod queue_task;
 mod queue_transition;
 mod reclamation;
+mod record_manifest;
+mod reference_node;
+mod reference_validation;
 mod replay;
 mod request;
 pub(crate) mod selection;
+mod staging_consumption;
 pub mod store;
 mod stream;
 mod traversal;

@@ -2,9 +2,24 @@
 
 [中文版](USAGE_zh.md)
 
-Install a matching [wheel](BUILDING.md). The examples below use the public
-Python API; the Rust crate owns the storage and queue protocol. Complete,
-CPU-only programs are in [examples](../examples).
+The public Python API uses the Rust storage and queue protocol.
+[Examples](../examples) contains complete CPU-only programs.
+
+<a id="install"></a>
+
+## Install
+
+```sh
+python -m pip install straw-queue
+```
+
+Supported platforms install a wheel containing the Rust extension without a Rust
+toolchain. Release targets are Linux x86_64, CPython 3.10–3.13 and glibc 2.28+;
+the actual wheel tag is authoritative (`cp312` cannot run on Python 3.10).
+For offline installation use `python -m pip install ./straw_queue-*.whl` with only
+a compatible wheel in the directory. Install the appropriate CPU/CUDA PyTorch
+build first if needed; NumPy/PyTorch are runtime dependencies. Other platforms
+and source development use the [contributor instructions](../CONTRIBUTING.md#build).
 
 ## Open a storage pool
 
@@ -63,7 +78,7 @@ I/O errors fail without this retry. Checksum corruption can therefore take the
 full retry window to report. The waits do not impose a deadline on filesystem
 I/O, and dependency traversal can perform several individually bounded reads.
 This covers store and read-session entry points without extra I/O on successful
-reads. See the [TLA+ specification](FORMAL_VERIFICATION.md) and avoid stacking an
+reads. See the [TLA+ specification](DESIGN.md#review) and avoid stacking an
 unbounded application retry loop around corruption errors.
 
 The API is synchronous; straw does not launch an I/O process pool. Applications
@@ -320,7 +335,7 @@ in [the format](FORMAT.md); it still requires application-side finalization.
 All storage/coordinator calls are synchronous. Use a bounded executor from an
 async application. Choose your own control transport; the small JSON HTTP
 transport in `straw.rpc` is for examples/private job networks, not a hosted
-multi-tenant service. See [application integration](APPLICATIONS.md).
+multi-tenant service. See [application integration](USAGE.md#integration).
 
 ### What resumes after a restart
 
@@ -393,7 +408,7 @@ receipt = peer.publication_receipt(
 
 This query does not stage data or change ownership. A returned old reference may already have been consumed and garbage collected; querying its receipt cannot restore the bytes or renew protection. For an unfinished registered publication, `peer.retire_writer(writer_id, policy="recover")` first fences the incarnation, recovers complete results into staging, and seals its reservations. A held gate returns `WriterBusy`; an old writer that resumes after fencing receives `WriterFenced`. Create a new writer for subsequent publications. Explicit `policy="abandon"` abandons unfinished operations while preserving existing queue, reader and staging roots. Unknown legacy preparation ownership is retained and reported rather than guessed from timeouts.
 
-Retirement depends on the deployment's gate-lock, fence-read coherence and in-flight-operation drain contracts described in [environment models](ENVIRONMENT_MODELS.md). It does not infer death from a PID, heartbeat or lease timeout.
+Retirement depends on the deployment's gate-lock, fence-read coherence and in-flight-operation drain contracts described in [environment models](DESIGN.md#environment). It does not infer death from a PID, heartbeat or lease timeout.
 
 `release_publications(refs)` consumes root/dependency staging while preserving independent reader/checkpoint/queue owners. Once new code records the release, even if its response is lost, retry/reopen/regrouping can succeed after manifest GC; it also consumes later staging of recorded dependencies. Release only publications you no longer need. Legacy logs without dependency edges cannot recover already collected manifests and still return an error.
 
@@ -403,4 +418,28 @@ Validation/write errors before a complete publication preserve established depen
 
 `TensorRef.load()`, slices and `validate()` bind dtype, shape and byte length to the authenticated envelope before payload allocation/read. Mismatches raise `CorruptData` without first reading a large tensor. Empty slices also validate the reference, so they can perform metadata I/O and report mismatched references or storage errors. They are not evidence that no file was accessed. Matching legacy records continue using their encoded checksum granularity.
 
-The lower-level `store.read_tensor_range(ref, start, stop, expected=...)` and read-session method optionally accept `{"dtype": ..., "shape": [...], "length": ...}` and bind those fields to the envelope. Omitting it preserves the byte-range API. `TensorRef` additionally checks its own shape/byte-count relation. Python validation, JSON/FFI correspondence and full adapter ordering remain outside Verus. Early rejection concerns payload work; metadata reads, parsing and allocations still cost resources.
+The lower-level `store.read_tensor_range(ref, start, stop, expected=...)` and read-session method optionally accept `{"dtype": ..., "shape": [...], "length": ...}` and bind those fields to the envelope. Omitting it preserves the byte-range API. `TensorRef` additionally checks its own shape/byte-count relation. Python validation, JSON/FFI correspondence and adapter ordering are reviewed and regression-tested; finite protocol models do not prove their implementation equivalence. Early rejection concerns payload work; metadata reads, parsing and allocations still cost resources.
+
+<a id="integration"></a>
+
+## Application integration
+
+Exchange JSON references through the existing control transport. Keep custom
+codecs, scheduling, batching, conversion and framework adapters in the consuming
+application. Use explicitly versioned sample/session schemas; reject unknown
+versions instead of importing or pickling arbitrary classes. Reuse one writer
+per process, publish large tensors separately with dependencies, decode batches
+with `from_record_set_many`, and persist intermediate work incrementally.
+
+Rollout routing/score captures must be complete and internally consistent before
+publishing a continuation; token generation ending is insufficient. Acknowledge
+raw outputs after every required consumer finishes, and ready batches after all
+training ranks finish reading. The application supervisor must latch/propagate
+background GC failures, stop admitting work, retain uncertain storage and fence
+remote operations still in flight.
+
+Joint checkpoint commit/rewind follows [C4](DESIGN.md#c4): model/optimizer/RNG and
+matching queue view, pending/buffered/prefetched dependencies and post-checkpoint
+replay owners. A latest marker or queue acknowledgement cannot replace it. See
+[restart APIs](#what-resumes-after-a-restart). Application tests cover real schemas,
+abort/resume, shared tensors, multiple-reader completion and whole-job recovery.

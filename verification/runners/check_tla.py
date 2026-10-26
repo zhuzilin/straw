@@ -178,6 +178,58 @@ ENVIRONMENT_MUTANTS = {
 
 
 def cases():
+    yield "cross_log_restore_without_retain", "CrossLogComposition", {
+        "Mutation": '"restore_without_retain"',
+        "@invariants": ["TypeOK", "QueueCoverage"],
+    }, "QueueCoverage"
+
+    for policy in ("recover", "abandon"):
+        yield "writer_retirement_corrupt_" + policy, "WriterRetirement", {
+            "Policy": json.dumps(policy),
+            "CorruptResults": "TRUE",
+        }, None
+    yield "writer_retirement_skip_authentication", "WriterRetirement", {
+        "CorruptResults": "TRUE",
+        "Mutation": '"skip_authentication"',
+        "@invariants": ["TypeOK", "AuthenticatedRecovery"],
+    }, "AuthenticatedRecovery"
+
+    for context in ("same", "pool", "run", "namespace", "root"):
+        yield "reactivation_context_" + context, "ReactivationRace", {"CacheContext": json.dumps(context)}, None
+    yield "reactivation_owner_mismatch", "ReactivationRace", {"OwnerRootMatches": "FALSE"}, None
+    for mutation, invariant, extra in (
+        ("wrong_cache", "AuthenticatedRoot", {"CacheContext": '"pool"'}),
+        ("wrong_owner_root", "CompleteAuthorizedClosure", {"OwnerRootMatches": "FALSE"}),
+        ("drop_dependency", "CompleteAuthorizedClosure", {}),
+    ):
+        yield "reactivation_" + mutation, "ReactivationRace", {
+            "Mutation": json.dumps(mutation),
+            "@invariants": ["TypeOK", invariant],
+            **extra,
+        }, invariant
+
+    for mutation in ("ignore_epoch", "ignore_attempt"):
+        yield "composition_" + mutation, "CrossLogComposition", {
+            "Mutation": json.dumps(mutation),
+            "@invariants": ["TypeOK", "CurrentLeaseOnly"],
+        }, "CurrentLeaseOnly"
+
+    for binding in ("index", "frame", "envelope", "cache"):
+        for warm in (False, True):
+            yield f"read_attempt_binding_{binding}_{warm}", "ReadAttempt", {
+                "Session": "TRUE",
+                "InitialCache": str(warm).upper(),
+                "BadBinding": json.dumps(binding),
+            }, None
+    for mutation, binding in (("skip_index", "index"), ("skip_frame", "frame"), ("wrong_cache", "cache")):
+        yield "read_attempt_" + mutation, "ReadAttempt", {
+            "Session": "TRUE",
+            "InitialCache": str(mutation == "wrong_cache").upper(),
+            "BadBinding": json.dumps(binding),
+            "Mutation": json.dumps(mutation),
+            "@invariants": ["TypeOK", "NoUnverifiedReturn"],
+        }, "NoUnverifiedReturn"
+
     yield "catalog_transaction_invalid_event", "CatalogTransaction", {"ValidEvent": "FALSE"}, None
     yield "catalog_transaction_skips_validation", "CatalogTransaction", {
         "ValidEvent": "FALSE",
@@ -197,12 +249,24 @@ def cases():
         ("missing_exit_guard", "NoSuccessAfterError"),
         ("missing_active_guard", "NoOutsideCall"),
         ("nested_entry", "NoNestedEntry"),
+        ("skip_lock", "BoundCaller"),
+        ("wrong_handle", "BoundCaller"),
         ("skip_recovery_sync", "ReadyDurable"),
     ):
         yield "catalog_transaction_" + mutation, "CatalogTransaction", {
             "Mutation": json.dumps(mutation),
             "@invariants": ["TypeOK", invariant],
         }, invariant
+    yield "catalog_transaction_stale_cache", "CatalogTransaction", {
+        "Mutation": '"stale_cache"',
+        "FailAt": "5",
+        "@invariants": ["TypeOK", "CacheMatchesPrefix"],
+    }, "CacheMatchesPrefix"
+    yield "catalog_transaction_skip_rebuild", "CatalogTransaction", {
+        "Mutation": '"skip_rebuild"',
+        "FailAt": "4",
+        "@invariants": ["TypeOK", "CacheMatchesPrefix"],
+    }, "CacheMatchesPrefix"
     yield "environment_catalog_transaction_sync_lies", "CatalogTransaction", {
         "@environment_mutation": "catalog_transaction_sync_lies",
         "@invariants": ["TypeOK", "ReadyDurable"],
@@ -480,20 +544,6 @@ def cases():
         "@environment_mutation": "typed_decode_lies",
         "@invariants": ["TypeOK", "ReturnedMatches"],
     }, "ReturnedMatches"
-    for chunk in (1, 2, 3):
-        yield f"tensor_granularity_{chunk}", "TensorGranularity", {"BaseChunk": str(chunk)}, None
-    for mutation, invariant in (
-        ("grow_new", "BoundedNewAuth"),
-        ("reinterpret_old", "CanonicalSpan"),
-        ("skip_left", "CanonicalSpan"),
-        ("inclusive_end", "CanonicalSpan"),
-        ("read_empty", "EmptyReadsNoPayload"),
-        ("cap_metadata", "CompleteMetadata"),
-    ):
-        yield "tensor_granularity_" + mutation, "TensorGranularity", {
-            "Mutation": json.dumps(mutation),
-            "@invariants": ["TypeOK", invariant],
-        }, invariant
     for length, chunk, buffer in ((1, 4, 3), (7, 3, 2), (8, 4, 1), (9, 4, 3), (7, 9, 2)):
         yield f"range_read_{length}_{chunk}_{buffer}", "RangeRead", {
             "Length": str(length),
@@ -822,19 +872,6 @@ def cases():
         "@environment_mutation": "truncate_loses_prefix",
         "@invariants": ["TypeOK", "PrefixPreserved"],
     }, "PrefixPreserved"
-    for mode in ("new", "legacy", "unknown"):
-        yield "encoding_" + mode, "NamespaceEncoding", {"Mode": json.dumps(mode)}, None
-    for mutation, mode, invariant in (
-        ("skip_field", "new", "CertifiedKeys"),
-        ("trust_legacy", "legacy", "DecodedIdentities"),
-        ("accept_unknown", "unknown", "UnknownRejected"),
-        ("resolve_new", "new", "NoResolvedLookups"),
-    ):
-        yield "encoding_" + mutation, "NamespaceEncoding", {
-            "Mode": json.dumps(mode),
-            "Mutation": json.dumps(mutation),
-            "@invariants": ["TypeOK", invariant],
-        }, invariant
     yield "namespace_alias", "NamespaceIdentity", {}, None
     yield "namespace_canonical", "NamespaceIdentity", {"ReaderName": '"file"'}, None
     yield "namespace_writer_alias", "NamespaceIdentity", {"WriterName": '"writer"'}, None
@@ -1024,13 +1061,6 @@ def cases():
         ("incomplete_cache", "CompleteClosure"),
     ):
         yield "dependency_" + mutation, "DependencyTraversal", {"Mutation": json.dumps(mutation)}, invariant
-    yield "payload_stream", "PayloadStream", {}, None
-    for mutation, invariant in (
-        ("ignore_length", "ExactPublication"),
-        ("ignore_callback_error", "NoIgnoredFailure"),
-        ("reread_length", "ExactPublication"),
-    ):
-        yield "payload_stream_" + mutation, "PayloadStream", {"Mutation": json.dumps(mutation)}, invariant
     for name, module, invariant in (
         ("sync_lies", "GCDeletion", "DurableCompletion"),
         ("wal_forgets", "Completion", "AcknowledgedDurable"),
@@ -1089,8 +1119,6 @@ def cases():
         ("ignore_conflict", "NoConflictingReplay"),
     ):
         yield "completion_" + mutation, "Completion", {"Mutation": json.dumps(mutation)}, invariant
-    yield "lease_selection", "LeaseSelection", {}, None
-    yield "lease_selection_legacy", "LeaseSelection", {"Mode": '"legacy"'}, "UniqueAssignments"
     yield "gc_deletion", "GCDeletion", {}, None
     yield "gc_receipt", "GCReceipt", {}, None
     for mutation, invariant in (
@@ -1105,16 +1133,6 @@ def cases():
         yield "gc_batch_" + mutation, "GCBatchDeletion", {"Mutation": json.dumps(mutation)}, "DurableCompletion"
     yield "gc_missing_sync", "GCDeletion", {"Mutation": '"skip_missing_sync"'}, "DurableCompletion"
     yield "gc_unlink_before_mark", "GCDeletion", {"Mutation": '"unlink_before_mark"'}, "DeleteAfterMark"
-    yield "usage_cache", "UsageCache", {}, None
-    yield "usage_cache_legacy", "UsageCache", {"Mode": '"legacy"'}, "CacheExactOrAbsent"
-    for kind in ("frame", "usage"):
-        yield "arithmetic_" + kind, "ExtentArithmetic", {"Kind": json.dumps(kind)}, None
-        yield (
-            "arithmetic_legacy_" + kind,
-            "ExtentArithmetic",
-            {"Kind": json.dumps(kind), "Mode": '"legacy"'},
-            "ExactOrRejected",
-        )
     yield "ownership", "Ownership", {}, None
     for mutation, invariant in (
         ("wal_before_retain", "QueueProtection"),
@@ -1329,7 +1347,7 @@ def main():
     registry = load_environment()
     configured = list(cases())
     positive_models = {case[1] for case in configured if case[3] is None}
-    expected_models = set(registry["models"]) - {"Verus"}
+    expected_models = set(registry["models"])
     if positive_models != expected_models:
         raise ValueError(
             f"Every declared model needs a configured positive case: "

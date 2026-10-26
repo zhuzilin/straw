@@ -137,7 +137,7 @@ struct OwnerCoverage<'a> {
     config: &'a Config,
     paths: BTreeSet<String>,
 }
-impl crate::writer_ownership::CoverageModel for OwnerCoverage<'_> {}
+
 impl crate::writer_ownership::Coverage for OwnerCoverage<'_> {
     fn reset(&mut self) {
         self.paths.clear();

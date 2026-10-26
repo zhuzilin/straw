@@ -8,17 +8,17 @@ straw **以共享文件系统作为存储层**：多台机器上的 worker 通�
 
 **当前实现和多机验证以 [JuiceFS](https://juicefs.com/) 共享挂载为主**，通过 Linux/POSIX 文件系统接口访问。本地文件系统用于开发和单机测试。未来计划扩展到包括 NFS 在内的更多网络文件系统，逐一验证其跨客户端锁、数据可见性和持久化语义。
 
-straw 目前服务于 **[slime](https://github.com/THUDM/slime)** 的 rollout 与训练流水线，包括共享底层张量的 rollout → rollout 和 rollout → train 队列。它是独立的 AI 应用库，也适用于数据预处理和推理流水线。详见[设计原理](docs/DESIGN_zh.md)和[应用集成](docs/APPLICATIONS_zh.md)。
+straw 目前服务于 **[slime](https://github.com/THUDM/slime)** 的 rollout 与训练流水线，包括共享底层张量的 rollout → rollout 和 rollout → train 队列。它是独立的 AI 应用库，也适用于数据预处理和推理流水线。详见[设计原理](docs/DESIGN_zh.md)和[应用集成](docs/USAGE_zh.md#integration)。
 
 ## 多机并行读写
 
-多个 producer 可以并行追加各自的 pack，其他机器上的 reader 通过引用读取已提交的不可变数据区间。协议保证先持久化载荷、再发布引用，用日志记录任务归属、已接收结果和消费者进度，并通过跨客户端 catalog 锁协调共享所有权与 GC。Reader pin 和显式读取完成信号保护数据，直到所有消费者使用完毕。详见[并发规则](docs/USAGE_zh.md#进程与线程并发)和[协议](docs/PROTOCOL_AND_VERIFICATION_zh.md)。
+多个 producer 可以并行追加各自的 pack，其他机器上的 reader 通过引用读取已提交的不可变数据区间。协议保证先持久化载荷、再发布引用，用日志记录任务归属、已接收结果和消费者进度，并通过跨客户端 catalog 锁协调共享所有权与 GC。Reader pin 和显式读取完成信号保护数据，直到所有消费者使用完毕。详见[并发规则](docs/USAGE_zh.md#进程与线程并发)和[协议](docs/DESIGN_zh.md)。
 
 ## 避免大量小文件的性能瓶颈
 
 每个 sample 或张量创建一个文件，会给共享文件系统带来大量元数据操作，尤其容易影响 NFS 性能。straw 将多条记录及其 manifest 合并到大的追加式 pack 文件中，支持批量发布，队列元数据使用固定的追加日志。**不会为每个 sample 或每个张量单独创建文件。** 文件数随 pack 数量和 writer 生命周期增长，而非随 sample 数量逐条增长；通过[打包与 GC](#通过打包控制文件数)管理其生命周期。
 
-**状态：**早期版本，支持 Linux/POSIX。每个队列只能有一个由外部机制隔离保护的协调器；尚无自动选主、日志压缩或存活 pack 整理。回收之前，应用必须提供真实的读取完成信号。详见[文件系统要求](docs/FILESYSTEM_zh.md)与[协议保证](docs/PROTOCOL_AND_VERIFICATION_zh.md)。
+**状态：**早期版本，支持 Linux/POSIX。每个队列只能有一个由外部机制隔离保护的协调器；尚无自动选主、日志压缩或存活 pack 整理。回收之前，应用必须提供真实的读取完成信号。详见[文件系统要求](docs/FILESYSTEM_zh.md)与[协议保证](docs/DESIGN_zh.md)。
 
 ## 安装
 
@@ -28,7 +28,7 @@ straw 目前服务于 **[slime](https://github.com/THUDM/slime)** 的 rollout �
 pip install straw-queue
 ```
 
-pip 会选择包含 Rust 扩展的兼容 wheel，**安装 wheel 无需 Rust 或 maturin**。NumPy 和 PyTorch 是运行时依赖，可以复用已有的兼容 PyTorch。发行包名为 `straw-queue`，导入名为 `straw`。[支持的平台、离线安装及源码构建](docs/BUILDING_zh.md)。
+pip 会选择包含 Rust 扩展的兼容 wheel，**安装 wheel 无需 Rust 或 maturin**。NumPy 和 PyTorch 是运行时依赖，可以复用已有的兼容 PyTorch。发行包名为 `straw-queue`，导入名为 `straw`。[支持的平台、离线安装及源码构建](CONTRIBUTING_zh.md#build)。
 
 ## 写入、读取、保留、回收
 
@@ -97,23 +97,17 @@ Benchmark 会校验读取结果，测量持久化发布与接收延迟，报告�
 
 ## 后续阅读
 
-- [设计原理与架构](docs/DESIGN_zh.md)
-- [记录、张量、任务、恢复与 GC](docs/USAGE_zh.md)
-- [文件系统部署与文件数规划](docs/FILESYSTEM_zh.md)
-- [协议、参考工作与正确性边界](docs/PROTOCOL_AND_VERIFICATION_zh.md)
-- [TLA+ / Verus 形式化验证](docs/FORMAL_VERIFICATION_zh.md)：分层覆盖、实际 Rust 证明、反例与边界
-- [可执行验证](docs/VERIFICATION_zh.md)与[二进制格式](docs/FORMAT_zh.md)
-- [构建 wheel 与发布检查](docs/BUILDING_zh.md)
-- [更新日志](CHANGELOG_zh.md)
-- [应用集成](docs/APPLICATIONS_zh.md)与[贡献指南](CONTRIBUTING_zh.md)
+- [设计与协议规格](docs/DESIGN_zh.md)：架构、环境前提、分布式协议／WAL／GC，以及模型与实现对应
+- [使用指南](docs/USAGE_zh.md)：安装、API、恢复和应用集成
+- [文件系统部署](docs/FILESYSTEM_zh.md)：挂载要求、空间规划和多客户端检查
+- [Benchmark](docs/BENCHMARKS_zh.md)：测量方法、轨迹重放和精选公开结果
+- [二进制格式](docs/FORMAT_zh.md)：实现兼容 reader 或修改格式
+- [贡献指南](CONTRIBUTING_zh.md)：测试、构建与发布；[更新日志](CHANGELOG_zh.md)
 
-## GitHub 构建与测试
-
-- [全套测试](.github/workflows/tests.yml)：Rust 测试、格式检查和 Clippy，以及 CPython 3.10–3.13 下针对已安装 wheel 的全部 Python 测试、所有权模型、故障注入、示例和有界 I/O/GC benchmark。
-- [Wheel 构建](.github/workflows/wheels.yml)：构建并验证 CPython 3.10–3.13 的 Linux x86_64 wheel（manylinux/glibc 2.28+），同时生成源码包并检查能否重新构建。从工作流运行页面的 **Artifacts** 下载产物。推送版本 tag 时，通过 Trusted Publishing 将已验证产物发布到 PyPI；同一提交的完整验证工作流必须先通过，才能上传发布产物。
-
-两条工作流都可以通过 **Actions → 选择工作流 → Run workflow** 手动触发。全套测试还会在 push 和 pull request 时运行；wheel 构建会在 pull request 和 `v*` tag 时运行。托管 CI 使用本地文件系统和 CPU PyTorch；多客户端 JuiceFS 部署验证与 GPU 训练使用[独立检查](docs/VERIFICATION_zh.md)。详见[构建与发布说明](docs/BUILDING_zh.md)。
+[测试](.github/workflows/tests.yml)与 [wheel](.github/workflows/wheels.yml)工作流提供 CI 检查及可下载产物；版本 tag 发布已经测试过的产物。配置和发布步骤见[贡献指南](CONTRIBUTING_zh.md#release)。
 
 ## 许可证
 
 [MIT](LICENSE)。
+
+[straw-protocol-review skill](.agents/skills/straw-protocol-review/SKILL.md): 文档 → TLA+ → 实现的审查流程。

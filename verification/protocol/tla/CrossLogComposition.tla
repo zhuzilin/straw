@@ -6,7 +6,7 @@ ASSUME /\ QueueCount \in 1..2 /\ RequestCount \in 1..3 /\ PackCount \in 1..2
        /\ (RequestCount > 1 => QueueCount = 2)
        /\ Mutation \in {"none", "accept_without_retain", "drop_dependency", "duplicate_accept",
            "prune_before_retire", "prune_peer", "consume_restage", "mark_owned", "receipt_before_sync",
-           "forget_tombstone", "ignore_conflict", "forget_recovery", "prune_offline"}
+           "forget_tombstone", "ignore_conflict", "forget_recovery", "prune_offline", "ignore_epoch", "ignore_attempt", "restore_without_retain"}
 Queues == 1..QueueCount
 Keys == IF RequestCount = 1 THEN {<<1,1>>}
         ELSE IF RequestCount = 2 THEN {<<1,1>>,<<2,1>>} ELSE {<<1,1>>,<<2,1>>,<<1,2>>}
@@ -21,7 +21,8 @@ Init == s = [queues |-> [q \in Queues |-> {}], holders |-> [h \in Holders |-> {}
              stages |-> [t \in Stages |-> 0], generation |-> [t \in Stages |-> 0],
              accepted |-> [k \in Keys |-> 0], cached |-> [k \in Keys |-> 0], count |-> [k \in Keys |-> 0],
              retired |-> {}, consumed |-> {}, ready |-> {}, present |-> Packs, durableNames |-> Packs,
-             dead |-> {}, reclaimed |-> {}, oldReplaySafe |-> TRUE, retryCorrect |-> TRUE, retainComplete |-> TRUE]
+             dead |-> {}, reclaimed |-> {}, oldReplaySafe |-> TRUE, retryCorrect |-> TRUE, retainComplete |-> TRUE,
+             epoch |-> [q \in Queues |-> 1], attempt |-> [k \in Keys |-> 1], leaseSafe |-> TRUE]
 Active(k) == s.accepted[k] # 0 /\ k \notin s.retired
 Protected(p) == (\E q \in Queues : p \in s.queues[q])
               \/ (\E h \in Holders : p \in s.holders[h])
@@ -31,14 +32,30 @@ Keep(q) == UNION {Recipe(Source(k)) : k \in {key \in Keys : key[1] = q /\ Active
 Retain(q,t) == /\ q \in s.ready /\ Available(Recipe(t))
                /\ LET held == s.queues[q] \cup (IF Mutation = "drop_dependency" THEN {1} ELSE Recipe(t))
                   IN s' = [s EXCEPT !.queues[q] = held, !.retainComplete = Recipe(t) \subseteq held]
-Accept(k,digest,applied) ==
+Accept(k,digest,applied,epoch,attempt) ==
     /\ k[1] \in s.ready /\ (s.accepted[k] = 0 \/ Mutation = "duplicate_accept")
     /\ (Recipe(Source(k)) \subseteq s.queues[k[1]] \/ Mutation = "accept_without_retain")
+    /\ (epoch = s.epoch[k[1]] \/ Mutation = "ignore_epoch")
+    /\ (attempt = s.attempt[k] \/ Mutation = "ignore_attempt")
     /\ s' = [s EXCEPT !.accepted[k] = digest, !.count[k] = @ + 1,
+             !.leaseSafe = @ /\ epoch = s.epoch[k[1]] /\ attempt = s.attempt[k],
              !.cached[k] = IF applied THEN digest ELSE @,
              !.ready = IF applied THEN @ ELSE @ \ {k[1]}]
+\* New admissions require the currently durable lease; a receipt replay below
+\* is checked first and stays valid after that lease has expired or changed.
+Revoke(k) == /\ k[1] \in s.ready /\ s.attempt[k] < 2
+             /\ s' = [s EXCEPT !.attempt[k] = @ + 1]
+NewEpoch(q) == /\ q \in s.ready /\ s.epoch[q] < 2
+               /\ s' = [s EXCEPT !.epoch[q] = @ + 1]
 Retire(k) == /\ k[1] \in s.ready /\ s.accepted[k] # 0
              /\ s' = [s EXCEPT !.retired = @ \cup {k}]
+\* A checkpoint/consumer rewind makes a previously retired receipt live.
+\* Its retain is the independent Retain action; this WAL step cannot precede
+\* it. Source holders may release immediately after the restore commits.
+Restore(k) == /\ k[1] \in s.ready /\ k \in s.retired
+              /\ Available(Recipe(Source(k)))
+              /\ (Recipe(Source(k)) \subseteq s.queues[k[1]] \/ Mutation = "restore_without_retain")
+              /\ s' = [s EXCEPT !.retired = @ \ {k}]
 Prune(q) == /\ (q \in s.ready \/ Mutation = "prune_offline")
             /\ LET target == IF Mutation = "prune_peer" THEN 3-q ELSE q
                    keep == IF Mutation = "prune_before_retire" \/
@@ -77,9 +94,9 @@ Retry(k,digest) ==
                         IF s.accepted[k] = digest THEN "cached" ELSE "conflict"
        IN s' = [s EXCEPT !.retryCorrect = reply = expected]
 Next == (\E q \in Queues, t \in Stages: Retain(q,t))
-        \/ (\E k \in Keys, d \in {1,2}, a \in BOOLEAN: Accept(k,d,a))
-        \/ (\E k \in Keys: Retire(k) \/ Consume(k))
-        \/ (\E q \in Queues: Prune(q) \/ CrashQueue(q) \/ RecoverQueue(q))
+        \/ (\E k \in Keys, d \in {1,2}, a \in BOOLEAN, e \in {1,2}, t \in {1,2}: Accept(k,d,a,e,t))
+        \/ (\E k \in Keys: Retire(k) \/ Restore(k) \/ Consume(k) \/ Revoke(k))
+        \/ (\E q \in Queues: Prune(q) \/ NewEpoch(q) \/ CrashQueue(q) \/ RecoverQueue(q))
         \/ (\E h \in Holders, t \in Stages: Hold(h,t)) \/ (\E h \in Holders: Release(h))
         \/ (\E t \in Stages: Stage(t))
         \/ (\E p \in Packs: Mark(p) \/ Unlink(p) \/ DirectorySync(p) \/ Receipt(p))
@@ -91,6 +108,7 @@ TypeOK == /\ s.queues \in [Queues -> SUBSET Packs] /\ s.holders \in [Holders -> 
           /\ s.retired \subseteq Keys /\ s.consumed \subseteq Keys /\ s.ready \subseteq Queues
           /\ s.present \subseteq Packs /\ s.durableNames \subseteq Packs
           /\ s.dead \subseteq Packs /\ s.reclaimed \subseteq Packs
+          /\ s.epoch \in [Queues -> 1..2] /\ s.attempt \in [Keys -> 1..2] /\ s.leaseSafe \in BOOLEAN
           /\ s.oldReplaySafe \in BOOLEAN /\ s.retryCorrect \in BOOLEAN /\ s.retainComplete \in BOOLEAN
 QueueCoverage == \A k \in Keys: Active(k) => Recipe(Source(k)) \subseteq s.queues[k[1]]
 ProtectedPresent == \A p \in Packs: Protected(p) => p \in s.present /\ p \notin s.dead
@@ -102,4 +120,5 @@ NoLateRetain == s.reclaimed \subseteq s.dead
 OldHandoffNoEffect == s.oldReplaySafe
 CorrectRetry == s.retryCorrect
 RetainedClosure == s.retainComplete
+CurrentLeaseOnly == s.leaseSafe
 =============================================================================

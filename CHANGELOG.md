@@ -2,6 +2,20 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.5
+
+### Ownership safety
+
+- Fix reactivation reusing an existing public owner without checking that it protects the requested root, including owner changes after authentication outside the lock. Check the retained pack closure both initially and under the fresh lock; internal queue owners bind the reference digest. Correct reuse still succeeds; public owner reuse adds closure/metadata checks.
+- Preserve public APIs, WAL/pack formats and durability ordering. Add regressions for existing-owner and post-authentication changes, and for staging remaining protected until queue WAL confirmation.
+
+### Specification, verification and maintenance
+
+- Remove all Verus source, inline specifications, ghost state, library contracts, runner, negative controls and CI; simplify Rust wrappers. Remove six deterministic local TLA+ models while retaining complete protocol models and product fault regressions.
+- Extend cross-log attempt/epoch and checkpoint rewind, WAL caller/cache, reactivation, authenticated read, writer retirement and conditional-progress scenarios. Distinguish model checking, execution tests and source review without claiming complete implementation equivalence.
+- Merge design, protocol, environmental premises and model-to-code correspondence into the [design and spec](docs/DESIGN.md). Move application integration into usage and checks/builds/releases into contributing; update both languages and add the `straw-protocol-review` skill.
+- Delete per-iteration proof, measurement and acceptance reports. Retain only three public benchmarks cited by the performance guide and explicitly list them in source-package manifests. Their results describe the original 0.1.4 candidate, not this version's performance.
+
 ## 0.1.4
 
 ### Recovery and continuation
@@ -43,7 +57,7 @@
 
 - Scan source distributions and wheel contents, including native libraries, for local paths and recognizable credentials. Remap Rust build paths before compilation so released binaries omit local source, home and toolchain locations; CI checks artifacts before upload and rejects findings without printing matched secrets.
 - Require TLA+/Verus checks, semantic negative controls, environment-contract audits, Rust/Python tests, formatting and Clippy before release builds and publishing. TLC records its jar hash without enforcing a checksum; Verus logs distinguish successful proofs from expected semantic rejections. Verification files are organized by protocol, WAL, GC, storage and offline recovery, with independently reviewable environment assumptions.
-- Freeze new formal-verification work for this release. Integrated proofs cover specific production bodies and models; complete retain/reactivation, cross-log recovery, authentication and liveness composition remain deferred and receive regression/fault-injection coverage. See the [release scope and boundaries](docs/FORMAL_VERIFICATION.md#verification-scope-for-this-release). Passing tests does not complete these proofs, and prior performance measurements do not establish this build's throughput or latency.
+- Freeze new formal-verification work for this release. Integrated proofs cover specific production bodies and models; complete retain/reactivation, cross-log recovery, authentication and liveness composition remain deferred and receive regression/fault-injection coverage. That scope describes the historical release. Passing tests does not complete these proofs, and prior performance measurements do not establish this build's throughput or latency.
 
 ## 0.1.3
 
@@ -119,4 +133,4 @@ Each queue requires one externally fenced coordinator. Automatic failover,
 live-pack compaction, journal compaction and a general distributed application
 checkpoint transaction are not provided. Additional network filesystems require
 deployment validation. See the [filesystem requirements](docs/FILESYSTEM.md) and
-[protocol guarantees](docs/PROTOCOL_AND_VERIFICATION.md).
+[protocol guarantees](docs/DESIGN.md).

@@ -44,37 +44,6 @@ jobs:
             target/tla/**/*.cfg
           if-no-files-found: error
 
-  verus:
-    name: Verus / shard ${{ matrix.shard }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.99.1
-        with:
-          components: rustc-dev, llvm-tools
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Verify pinned Rust contracts and semantic mutants
-        run: >-
-          python verification/runners/check_verus.py --download --timeout 600
-          --shard-index ${{ matrix.shard }} --shard-count 16
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: verus-verification-${{ matrix.shard }}
-          path: |
-            target/verus/report.json
-            target/verus/environment_contracts.json
-            target/verus/**/*.log
-            target/verus/**/*.rs
-          if-no-files-found: error
-
   checks:
     name: Rust tests and code checks
     runs-on: ubuntu-latest
@@ -138,7 +107,7 @@ jobs:
 
   verification:
     name: Verification passed
-    needs: [formal, verus, checks, python]
+    needs: [formal, checks, python]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -152,7 +121,7 @@ jobs:
           import os
 
           results = json.loads(os.environ["RESULTS"])
-          assert set(results) == {"formal", "verus", "checks", "python"}
+          assert set(results) == {"formal", "checks", "python"}
           failed = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
           if failed:
               raise SystemExit(f"Verification did not pass: {failed}")

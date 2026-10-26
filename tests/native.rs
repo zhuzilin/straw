@@ -224,6 +224,44 @@ fn root_that_loses_its_owner_after_snapshot_requires_verification() -> Result<()
     Ok(())
 }
 #[test]
+fn reactivation_rejects_an_existing_owner_of_a_different_root() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut cfg = config(dir.path(), 1024 * 1024);
+    cfg.online_gc = true;
+    let a = protected_root(&cfg, "source-a")?;
+    let b = protected_root(&cfg, "source-b")?;
+    cfg.catalog(|c| c.retain(&cfg, "restored", std::slice::from_ref(&a), &mut |_| Ok(())))?;
+    let before = std::fs::read(dir.path().join("storage.log"))?;
+    assert!(
+        cfg.verify_reactivation(&[("restored".into(), b.clone())], &mut |_| Ok(()))
+            .is_err()
+    );
+    assert_eq!(std::fs::read(dir.path().join("storage.log"))?, before);
+    // Normal reuse still succeeds, with no catalog write.
+    cfg.retain_reactivated(&[("restored".into(), a)], &mut |_| Ok(()))?;
+    assert_eq!(std::fs::read(dir.path().join("storage.log"))?, before);
+    Ok(())
+}
+
+#[test]
+fn reactivation_rechecks_an_owner_created_after_authentication() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut cfg = config(dir.path(), 1024 * 1024);
+    cfg.online_gc = true;
+    let a = protected_root(&cfg, "source-a")?;
+    let b = protected_root(&cfg, "source-b")?;
+    let verified = cfg.verify_reactivation(&[("restored".into(), b)], &mut |_| Ok(()))?;
+    cfg.catalog(|c| c.retain(&cfg, "restored", &[a], &mut |_| Ok(())))?;
+    let before = std::fs::read(dir.path().join("storage.log"))?;
+    let error = cfg
+        .catalog(|c| c.retain_verified(&cfg, &verified, &mut |_| Ok(())))
+        .unwrap_err();
+    assert_eq!(error.kind, "UnsafeRecovery");
+    assert_eq!(std::fs::read(dir.path().join("storage.log"))?, before);
+    Ok(())
+}
+
+#[test]
 fn append_100_samples_one_file_and_read_old_extents() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let mut store = Store::new(config(dir.path(), 1024 * 1024));

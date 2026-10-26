@@ -1,47 +1,53 @@
-# 数据存储 / Data storage
+# storage: models and experiments / 模型与实验
 
-[总入口 / Index](../README.md)
+[总入口 / Index](../README.md) · [三条协议主线 / Protocol](../../docs/DESIGN.md) · [审查映射 / Review map](../../docs/DESIGN.md#review)
 
-发布与读取、可见性、路径／编码、tensor 及大数据带宽测量。 / Publication and reads, visibility, paths/encoding, tensors and large-data throughput measurements.
+规则以协议文档为准；本目录仅列可执行模型和实验。运行器保留每个 case 的配置、哈希与反例。
 
-模型与配置在 `tla/`，部署实验与配套注入程序在 `probes/`。如有 `checks/` 或 `verus/`，分别放可执行检查和数学证明。生产 Rust 的证明合约仍随实现在仓库 `rust/` 中。
-
-Models/configurations live in `tla/`, deployment experiments and their shims in `probes/`. Optional `checks/` and `verus/` contain executable checks and mathematical proofs. Production Rust proof contracts remain with their implementations in the repository `rust/` directory.
-
-从仓库根目录运行 / Run from the repository root:
+The protocol document defines the rules. This directory contains executable models and experiments; the runner records each case configuration, hashes and counterexample.
 
 ```sh
 python verification/runners/check_tla.py --area storage
-python verification/runners/environment_manifest.py --model DependencyTraversal
 ```
 
-不加 `--area` 运行完整模型集合。完整 Rust 证明共用 `verification/runners/check_verus.py`。 / Omit `--area` for the complete model suite. All Rust proofs use the shared Verus runner.
+## Models / 模型
 
-| Model | Configuration |
-|---|---|
-| [DependencyTraversal](tla/DependencyTraversal.tla) | [DependencyTraversal.cfg](tla/DependencyTraversal.cfg) |
-| [DirectoryDurability](tla/DirectoryDurability.tla) | [DirectoryDurability.cfg](tla/DirectoryDurability.cfg) |
-| [ExtentArithmetic](tla/ExtentArithmetic.tla) | [ExtentArithmetic.cfg](tla/ExtentArithmetic.cfg) |
-| [ExtentVisibility](tla/ExtentVisibility.tla) | [ExtentVisibility.cfg](tla/ExtentVisibility.cfg) |
-| [IncompletePublication](tla/IncompletePublication.tla) | [IncompletePublication.cfg](tla/IncompletePublication.cfg) |
-| [NamespaceEncoding](tla/NamespaceEncoding.tla) | [NamespaceEncoding.cfg](tla/NamespaceEncoding.cfg) |
-| [NamespaceIdentity](tla/NamespaceIdentity.tla) | [NamespaceIdentity.cfg](tla/NamespaceIdentity.cfg) |
-| [PayloadStream](tla/PayloadStream.tla) | [PayloadStream.cfg](tla/PayloadStream.cfg) |
-| [PendingPublication](tla/PendingPublication.tla) | [PendingPublication.cfg](tla/PendingPublication.cfg) |
-| [PublicationFinalization](tla/PublicationFinalization.tla) | [PublicationFinalization.cfg](tla/PublicationFinalization.cfg) |
-| [PublicationPreparation](tla/PublicationPreparation.tla) | [PublicationPreparation.cfg](tla/PublicationPreparation.cfg) |
-| [PublicationRetry](tla/PublicationRetry.tla) | [PublicationRetry.cfg](tla/PublicationRetry.cfg) |
-| [RangeRead](tla/RangeRead.tla) | [RangeRead.cfg](tla/RangeRead.cfg) |
-| [ReadAttempt](tla/ReadAttempt.tla) | [ReadAttempt.cfg](tla/ReadAttempt.cfg) |
-| [ReadLookup](tla/ReadLookup.tla) | [ReadLookup.cfg](tla/ReadLookup.cfg) |
-| [TensorGranularity](tla/TensorGranularity.tla) | [TensorGranularity.cfg](tla/TensorGranularity.cfg) |
-| [TypedRead](tla/TypedRead.tla) | [TypedRead.cfg](tla/TypedRead.cfg) |
-| [WriterAccess](tla/WriterAccess.tla) | [WriterAccess.cfg](tla/WriterAccess.cfg) |
+- [DependencyTraversal](tla/DependencyTraversal.tla) · [config](tla/DependencyTraversal.cfg)
+- [DirectoryDurability](tla/DirectoryDurability.tla) · [config](tla/DirectoryDurability.cfg)
+- [ExtentVisibility](tla/ExtentVisibility.tla) · [config](tla/ExtentVisibility.cfg)
+- [IncompletePublication](tla/IncompletePublication.tla) · [config](tla/IncompletePublication.cfg)
+- [NamespaceIdentity](tla/NamespaceIdentity.tla) · [config](tla/NamespaceIdentity.cfg)
+- [PendingPublication](tla/PendingPublication.tla) · [config](tla/PendingPublication.cfg)
+- [PublicationFinalization](tla/PublicationFinalization.tla) · [config](tla/PublicationFinalization.cfg)
+- [PublicationPreparation](tla/PublicationPreparation.tla) · [config](tla/PublicationPreparation.cfg)
+- [PublicationRetry](tla/PublicationRetry.tla) · [config](tla/PublicationRetry.cfg)
+- [RangeRead](tla/RangeRead.tla) · [config](tla/RangeRead.cfg)
+- [ReadAttempt](tla/ReadAttempt.tla) · [config](tla/ReadAttempt.cfg)
+- [ReadLookup](tla/ReadLookup.tla) · [config](tla/ReadLookup.cfg)
+- [TypedRead](tla/TypedRead.tla) · [config](tla/TypedRead.cfg)
+- [WriterAccess](tla/WriterAccess.tla) · [config](tla/WriterAccess.cfg)
 
-证明边界和待补项见 [FORMAL_VERIFICATION](../../docs/FORMAL_VERIFICATION_zh.md)。 / See [formal verification](../../docs/FORMAL_VERIFICATION.md) for proof boundaries and outstanding work.
+## Checks and probes / 检查与实验
 
-实际 [closure::collect/resolve](../../rust/closure.rs) 已证明完整可达 pack、缓存保持、错误不写部分缓存及传递 tombstone 拒绝；原生逐节点 Reader／摘要／namespace 与缓存上下文仍有适配义务。[确切证据](../measurements/20261025-dependency-closure.json)。
+- [catalog_encoding_probe.py](probes/catalog_encoding_probe.py)
+- [dependency_probe.py](probes/dependency_probe.py)
+- [directory_sync_probe.py](probes/directory_sync_probe.py)
+- [extent_visibility_probe.py](probes/extent_visibility_probe.py)
+- [filesystem_bandwidth_probe.py](probes/filesystem_bandwidth_probe.py)
+- [incomplete_publication_probe.py](probes/incomplete_publication_probe.py)
+- [path_identity_probe.py](probes/path_identity_probe.py)
+- [pending_publication_probe.py](probes/pending_publication_probe.py)
+- [preparation_probe.py](probes/preparation_probe.py)
+- [publication_finalize_probe.py](probes/publication_finalize_probe.py)
+- [publication_retry_probe.py](probes/publication_retry_probe.py)
+- [read_latency_probe.py](probes/read_latency_probe.py)
+- [read_lookup_probe.py](probes/read_lookup_probe.py)
+- [tensor_granularity_probe.py](probes/tensor_granularity_probe.py)
+- [typed_preflight_probe.py](probes/typed_preflight_probe.py)
+- [writer_access_probe.py](probes/writer_access_probe.py)
+- [writer_lifetime_probe.py](probes/writer_lifetime_probe.py)
+- [large_extent_probe.rs](probes/large_extent_probe.rs)
+- [positioned_extent_probe.rs](probes/positioned_extent_probe.rs)
+- [standalone_extent_probe.rs](probes/standalone_extent_probe.rs)
 
-Production closure traversal and tombstone checking now prove exact reachability and cache preservation under a finite immutable per-node source. Native source/context and ownership/GC refinement remain open; the linked record separates proof and runtime evidence.
-
-实际 [closure_node](../../rust/closure_node.rs) 进一步证明字段优先级、数组校验、完整有序后继和摘要／引用绑定；图上下文、原生认证读取／摘要／路径适配仍未闭合。[逐节点证据](../measurements/20261025-closure-node.json)。 / Actual node decoding proves field selection and complete ordered child binding under Digest and Value contracts; native read/hash/namespace and graph-context refinement remain open.
+环境前提与实现义务见[环境审查 / Environment review](../../docs/DESIGN.md#environment)。实验结果只支持实际测试的部署与故障类型；不保证任意文件系统或应用。

@@ -6,7 +6,7 @@ VARIABLES phase, tombstoned, present, durablePresent, completed, unstable
 vars == <<phase, tombstoned, present, durablePresent, completed, unstable>>
 
 \* One sealed pack has permanently lost its last owner. Ownership and late
-\* retain fencing are checked separately by Ownership.tla and the Verus model.
+\* retain fencing are checked separately by Ownership.tla and DurableHandoff.tla.
 \* An operation may fail after producing its volatile or durable side effect.
 Init == /\ phase = "scan" /\ tombstoned = FALSE /\ present = TRUE /\ durablePresent = TRUE
         /\ completed = FALSE /\ unstable = TRUE

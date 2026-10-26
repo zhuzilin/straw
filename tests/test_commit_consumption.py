@@ -20,6 +20,31 @@ def data_files(root):
     return [p for p in root.rglob("*") if p.suffix in (".pack", ".sealed", ".partial")]
 
 
+@pytest.mark.parametrize(
+    "cut", ["before_journal_write", "after_journal_part", "before_journal_sync", "after_journal_sync"]
+)
+def test_staging_remains_until_queue_wal_is_confirmed(tmp_path, cut):
+    with store(tmp_path) as s, Coordinator(s, exclusive_owner="test") as q:
+        ref = s.publish([Record("input", b"protected input")], submission_id="input")
+        s.seal()
+
+        def fail(at):
+            if at == cut:
+                raise OSError(errno.EIO, "queue confirmation interrupted")
+
+        s.backend.fault = fail
+        with pytest.raises(IndeterminateCommit):
+            q.submit_tasks("submit", [TaskSpec("t", input_ref=ref)])
+        s.backend.fault = lambda _: None
+        # Even a complete uncertain queue frame cannot authorize an early
+        # staging receipt. Recovery, rather than this failed call, owns cleanup.
+        receipts = [
+            receipt for event in events(tmp_path / "storage.log") for receipt in event.get("consumed_handoffs", [])
+        ]
+        assert receipts == []
+        assert next(s.read(ref)).payload == b"protected input"
+
+
 @pytest.mark.parametrize("target", [0, PACKED])
 @pytest.mark.parametrize("reopen", [False, True])
 @pytest.mark.parametrize(

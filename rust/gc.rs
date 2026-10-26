@@ -205,9 +205,6 @@ fn validate_staging_edges(
     Ok(())
 }
 
-#[cfg(test)]
-pub(crate) use crate::catalog_namespace::NativeKeySet;
-
 // Per-node reading remains separate from the graph traversal and its cache.
 struct ReferenceDigest;
 
@@ -653,7 +650,7 @@ impl crate::catalog_runtime::Library for crate::wal_file::NativeLibrary {
     }
 }
 
-/// Raw named-path operations for the verified collection adapter. The adapter
+/// Raw named-path operations for the collection adapter. The adapter
 /// owns target indexing, barrier ordering, ancestor retries, and the receipt.
 struct PhysicalIo<'a, S> {
     config: &'a Config,
@@ -1056,11 +1053,43 @@ impl Catalog {
         self.reactivation_candidates_inner(config, roots)
     }
 
+    /// Reusing an owner is safe only when it already covers this root. Queue
+    /// owners bind the immutable reference digest in their reserved name; public
+    /// names are mutable, so compare their actual retained pack closure.
+    fn check_reactivation_owners(
+        &mut self,
+        config: &Config,
+        roots: &[(String, Value)],
+    ) -> Result<()> {
+        let mut reader = Reader::new(config.clone());
+        let mut inspected = HashSet::new();
+        for (owner, reference) in roots {
+            if !self.log.indexes().owners.contains_key(owner) {
+                continue;
+            }
+            let matches = if owner.starts_with("queue:") {
+                owner.rsplit_once(':').map(|(_, key)| key) == Some(digest(reference)?.as_str())
+            } else {
+                let requested =
+                    self.closure_inner(config, reference, &mut inspected, &mut reader)?;
+                !requested.is_empty() && requested.is_subset(&self.log.indexes().owners[owner])
+            };
+            if !matches {
+                return fail(
+                    "UnsafeRecovery",
+                    "Existing owner does not protect the requested root",
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn reactivation_candidates_inner(
         &mut self,
         config: &Config,
         roots: &[(String, Value)],
     ) -> Result<Vec<Value>> {
+        self.check_reactivation_owners(config, roots)?;
         let missing = roots
             .iter()
             .filter(|(owner, _)| !self.log.indexes().owners.contains_key(owner))
@@ -1125,6 +1154,7 @@ impl Catalog {
                 "Verified reactivation belongs to another storage pool",
             );
         }
+        self.check_reactivation_owners(config, &verified.roots)?;
         let missing = verified
             .roots
             .iter()
