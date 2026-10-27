@@ -40,6 +40,7 @@ cargo test --locked
 python -m pytest
 python verification/runners/environment_manifest.py --check
 python verification/runners/check_tla.py
+python verification/runners/check_mutations.py
 python verification/protocol/checks/ownership_model.py --output /tmp/straw-ownership.json
 python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
@@ -52,6 +53,12 @@ configured release. It records the actual jar hash without enforcing a checksum.
 Logs, configs and counterexamples default to `target/tla/`. Positives must pass;
 negatives must fail the named invariant/temporal property. Parse errors, timeouts
 and launch failures never count as semantic rejection.
+
+The implementation mutation runner first passes an unmodified regression baseline,
+then edits isolated Rust copies to reuse uncertain registry state, cache a directory
+before its barriers, and skip GC parent barriers. Each must fail its named runtime
+test; compilation failures, missing tests and timeouts do not count. Reports default
+to `target/implementation-mutations/` and are retained by CI.
 
 The inventory checks declared IDs, paths and environment imports. The independent
 ownership model explores a bounded abstraction; the crash campaign checks byte

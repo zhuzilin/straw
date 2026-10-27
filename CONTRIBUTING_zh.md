@@ -25,6 +25,7 @@ cargo test --locked
 python -m pytest
 python verification/runners/environment_manifest.py --check
 python verification/runners/check_tla.py
+python verification/runners/check_mutations.py
 python verification/protocol/checks/ownership_model.py --output /tmp/straw-ownership.json
 python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.json
 ```
@@ -32,6 +33,8 @@ python verification/wal/checks/crash_campaign.py --output /tmp/straw-crashes.jso
 Rust 修改后先重新构建／安装 native 扩展，再跑 Python 测试。局部模型工作可用 `check_tla.py --area wal --area gc` 或 `--case NAME`；发布验收运行全部保留场景。`--jar /path/to/tla2tools.jar` 指定 TLC，否则 runner 下载配置的发行包；记录实际 jar 哈希，不强制 checksum。日志、配置和反例默认在 `target/tla/`。正例必须通过，负例必须违反指定不变量／时序性质；解析错误、超时和启动失败不算检出。
 
 环境登记检查核对声明的 ID、路径与模块导入。独立所有权模型探索有限抽象；crash campaign 检查逐字节前缀／损坏和进程退出，都不认证存储服务故障或掉电行为。多客户端验证见[部署指南](docs/FILESYSTEM_zh.md#qualification)。
+
+实现 mutation runner 先通过未修改的回归基线，再在隔离 Rust 副本中复用不确定 registry 状态、提前缓存目录、跳过 GC 父目录屏障。每项必须使指定运行时测试失败；编译错误、缺失测试和超时不算检出。报告默认保存在 `target/implementation-mutations/`，由 CI 留存。
 
 <a id="build"></a>
 

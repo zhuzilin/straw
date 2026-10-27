@@ -21,6 +21,9 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[path = "gc_plan.rs"]
+mod collection;
+
 fn catalog_append_error(error: crate::catalog_append::Error<Error, Error>) -> Error {
     match error {
         crate::catalog_append::Error::Decode(error) => catalog_decode_error(error),
@@ -60,11 +63,20 @@ fn collection_error(
     }
 }
 
+#[cfg(test)]
 fn queue_collection_error(error: crate::gc_collection::QueueFailure<Error, Error, Error>) -> Error {
     match error {
         crate::gc_collection::QueueFailure::Collect(error) => collection_error(error),
-        crate::gc_collection::QueueFailure::Prune(error) => catalog_append_error(error),
-        crate::gc_collection::QueueFailure::Ownership(error) => match error {
+        crate::gc_collection::QueueFailure::Preparation(error) => queue_preparation_error(error),
+    }
+}
+
+fn queue_preparation_error(
+    error: crate::gc_collection::QueuePreparationFailure<Error, Error>,
+) -> Error {
+    match error {
+        crate::gc_collection::QueuePreparationFailure::Prune(error) => catalog_append_error(error),
+        crate::gc_collection::QueuePreparationFailure::Ownership(error) => match error {
             crate::queue_gc::OwnershipError::Missing => Error::new(
                 "UnsafeRecovery",
                 "Live queue root has no durable storage owner",
@@ -74,7 +86,7 @@ fn queue_collection_error(error: crate::gc_collection::QueueFailure<Error, Error
                 "Live queue root has invalid storage ownership",
             ),
         },
-        crate::gc_collection::QueueFailure::Reserved => Error::new(
+        crate::gc_collection::QueuePreparationFailure::Reserved => Error::new(
             "ValueError",
             "publication: is reserved for durable writer operations",
         ),
@@ -620,11 +632,6 @@ impl<T, F: FnOnce(&mut LockedCatalog<'_>) -> Result<T>>
     type Output = T;
     fn call(self, catalog: &mut Catalog) -> Result<T> {
         (self.0)(&mut LockedCatalog { catalog })
-    }
-}
-impl crate::catalog_gc::Library for crate::wal_file::NativeLibrary {
-    fn queue_error(error: crate::gc_collection::QueueFailure<Error, Error, Error>) -> Error {
-        queue_collection_error(error)
     }
 }
 impl crate::catalog_runtime::Library for crate::wal_file::NativeLibrary {
@@ -1328,28 +1335,6 @@ impl Catalog {
             )
             .map_err(collection_error)?;
         Ok(self.collection_summary(result))
-    }
-
-    pub(crate) fn collect_queue_transaction(
-        &mut self,
-        config: &Config,
-        prepared: crate::queue_gc::Prepared<'_>,
-        fault: &mut Fault<'_>,
-    ) -> Result<Value> {
-        let call = crate::catalog_gc::Queue::<crate::wal_file::NativeLibrary, _, _>::new(
-            prepared,
-            crate::wal_file::NativeHooks(fault),
-            PhysicalIo {
-                config,
-                stat: |path: &Path| std::fs::metadata(path),
-            },
-        );
-        let result = self.execute::<crate::wal_file::NativeLibrary, _>(
-            config.root.to_str(),
-            &config.run_id,
-            call,
-        );
-        Ok(self.collection_summary(transaction_result(result)?))
     }
 
     fn collection_summary(&self, result: crate::gc_collection::Collected) -> Value {

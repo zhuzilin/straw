@@ -178,6 +178,33 @@ ENVIRONMENT_MUTANTS = {
 
 
 def cases():
+    yield "gc_concurrent_deletion", "GCConcurrentDeletion", {}, None
+    for mutation, invariant in (
+        ("unmarked_plan", "PlanFenced"),
+        ("early_receipt", "ReceiptDurable"),
+        ("receipt_all_pending", "ReceiptScoped"),
+        ("forget_tombstone", "ReceiptKeepsFence"),
+        ("retain_marked", "OwnedPresent"),
+    ):
+        yield "gc_concurrent_" + mutation, "GCConcurrentDeletion", {
+            "Mutation": json.dumps(mutation),
+            "@invariants": ["TypeOK", invariant],
+        }, invariant
+    for tail in (False, True):
+        yield f"registry_cache_{tail}", "CatalogReplay", {
+            "Tail": str(tail).upper(),
+            "ReuseConfirmed": "TRUE",
+        }, None
+    yield "registry_reuses_dirty_cache", "CatalogReplay", {
+        "Tail": "TRUE",
+        "ReuseConfirmed": "TRUE",
+        "Mutation": '"reuse_dirty"',
+        "@invariants": ["TypeOK", "CoherentReady"],
+    }, "CoherentReady"
+    yield "directory_caches_before_barriers", "DirectoryDurability", {
+        "Mutation": '"cache_early"',
+        "@invariants": ["TypeOK", "NoLostAcknowledgedData"],
+    }, "NoLostAcknowledgedData"
     yield "cross_log_restore_without_retain", "CrossLogComposition", {
         "Mutation": '"restore_without_retain"',
         "@invariants": ["TypeOK", "QueueCoverage"],

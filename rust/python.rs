@@ -516,6 +516,9 @@ impl NativeStore {
         self.check_writer_process()?;
         let args = parse(arguments).map_err(|e| exception(py, e))?;
         run(py, &fault, |fault| {
+            if method == "collect" {
+                return Ok(serde_json::to_string(&self.config.collect_garbage(fault)?)?);
+            }
             let result = self.config.catalog(|c| match method {
                 "retain" => {
                     c.retain(
@@ -534,7 +537,6 @@ impl NativeStore {
                     c.consume(&self.config, crate::array(&args, "refs")?, fault)?;
                     Ok(Value::Null)
                 }
-                "collect" => c.collect(&self.config, fault),
                 _ => crate::fail("ValueError", "Unknown storage operation"),
             })?;
             Ok(serde_json::to_string(&result)?)

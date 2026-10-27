@@ -2,6 +2,12 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.6
+
+- Reuse confirmed writer-registry state and index operation lookup; rebuild after uncertain outcomes. Cache only successfully synchronized writer directories with pinned inode identity. Keep existing publication WAL barriers and wire formats.
+- Move physical GC deletion and directory synchronization outside the pool catalog lock. Bind receipts to the completed plan and support overlapping collectors without consuming newly added pending work.
+- Cache up to eight authenticated extent indexes for alternating reads. Extend protocol models and concrete regressions; add real Rust mutation checks to CI and a reproducible metadata-scaling probe. Metadata history/receipt retirement and compaction remain out of scope.
+
 ## 0.1.5
 
 ### Ownership safety

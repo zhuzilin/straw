@@ -291,10 +291,15 @@ impl<R: Resolver, D: Controls, P: Physical> Batch<'_, R, D, P> {
     }
 }
 
-pub enum QueueFailure<P, R, D> {
+pub enum QueuePreparationFailure<R, D> {
     Ownership(crate::queue_gc::OwnershipError),
     Reserved,
     Prune(crate::catalog_append::Error<R, D>),
+}
+
+#[cfg(test)]
+pub enum QueueFailure<P, R, D> {
+    Preparation(QueuePreparationFailure<R, D>),
     Collect(gc_batch::Failure<Error<P, R, D>>),
 }
 
@@ -303,30 +308,13 @@ impl<R: Resolver, D: Controls, P: Physical> Batch<'_, R, D, P> {
         clippy::type_complexity,
         reason = "Keep physical, namespace and WAL failures distinct in the checked controller contract."
     )]
+    #[cfg(test)]
     pub fn run_queue(
         &mut self,
         prepared: crate::queue_gc::Prepared<'_>,
     ) -> Result<Collected, QueueFailure<P::Error, R::Error, D::Error>> {
-        let (prefix, live) = prepared.parts();
-        if let Err(error) = crate::queue_gc::require(
-            &self.log.indexes().owners,
-            &self.log.indexes().deleted,
-            &live,
-        ) {
-            return Err(QueueFailure::Ownership(error));
-        }
-
-        let dead = crate::queue_gc::prunable(&self.log.indexes().owners, prefix, &live);
-
-        if !crate::queue_gc::not_publication_owners(&dead) {
-            return Err(QueueFailure::Reserved);
-        }
-        if let Err(error) =
-            crate::queue_gc::release(self.log, self.resolver, self.run, &dead, self.io.device)
-        {
-            return Err(QueueFailure::Prune(error));
-        }
-
+        prepare_queue(self.log, self.resolver, self.run, self.io.device, prepared)
+            .map_err(QueueFailure::Preparation)?;
         self.io.device.restart();
         let outcome = self.run();
 
@@ -335,6 +323,26 @@ impl<R: Resolver, D: Controls, P: Physical> Batch<'_, R, D, P> {
             Err(error) => Err(QueueFailure::Collect(error)),
         }
     }
+}
+
+/// Queue history has already been durably retired. Check every remaining root
+/// against this fresh locked catalog before pruning only this queue's owners.
+pub fn prepare_queue<R: Resolver, D: Controls>(
+    log: &mut LogState,
+    resolver: &mut R,
+    run: &str,
+    device: &mut D,
+    prepared: crate::queue_gc::Prepared<'_>,
+) -> Result<(), QueuePreparationFailure<R::Error, D::Error>> {
+    let (prefix, live) = prepared.parts();
+    crate::queue_gc::require(&log.indexes().owners, &log.indexes().deleted, &live)
+        .map_err(QueuePreparationFailure::Ownership)?;
+    let dead = crate::queue_gc::prunable(&log.indexes().owners, prefix, &live);
+    if !crate::queue_gc::not_publication_owners(&dead) {
+        return Err(QueuePreparationFailure::Reserved);
+    }
+    crate::queue_gc::release(log, resolver, run, &dead, device)
+        .map_err(QueuePreparationFailure::Prune)
 }
 
 impl<R: Resolver, D: Controls, P: Physical> Batch<'_, R, D, P> {
@@ -364,6 +372,7 @@ pub fn collect<R: Resolver, D: Controls, P: Physical>(
     clippy::type_complexity,
     reason = "Keep physical, namespace and WAL failures distinct in the checked controller contract."
 )]
+#[cfg(test)]
 pub fn collect_queue<R: Resolver, D: Controls, P: Physical>(
     log: &mut LogState,
     resolver: &mut R,

@@ -195,7 +195,7 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 
 连续读取不可变 publication 时，可共用一个 `with store.read_session() as reader:`。Reader 提供 `validate`、`manifest`、`read`、`read_record`、`envelope` 和带校验的张量读取。将它传给 `TensorRef.from_record_set_many(store, publication, reader=reader)` 与 `tensor.load(reader=reader)`，可避免重复解析同一 extent 的索引。
 
-Rust reader 只保留最后一个已认证索引，以完整 extent 描述符区分身份。每次 manifest/record 读取仍校验 frame 和载荷；张量读取仍校验触及的 chunk。每次 `validate` 都重新检查逻辑描述符与 task/attempt 权限。切换 extent 或开启新会话后重新认证索引。整个读取过程必须由持久 owner 或 `store.pin` 保护：读取会话本身不保留存储所有权。退出上下文会关闭会话，fork 后继承的会话拒绝所有操作。
+Rust reader 使用最多八条已认证索引的 LRU，以完整 extent 描述符区分身份，编码元数据预算为 8 MiB；一个超大活动 index 会淘汰其他条目。每次 manifest/record 读取仍校验 frame 和载荷；张量读取仍校验触及的 chunk。每次 `validate` 都重新检查逻辑描述符与 task/attempt 权限。缓存未命中或开启新会话后重新认证索引。同一会话的调用串行，并行读取应使用独立会话。整个读取过程必须由持久 owner 或 `store.pin` 保护：读取会话本身不保留存储所有权。退出上下文会关闭会话，fork 后继承的会话拒绝所有操作。
 
 发布依赖校验、批量续跑进度、消费者快照及 GC 遍历在 Rust 内部也复用这种有界 reader。文件格式、WAL 提交顺序、容量限制和所有权释放规则均未改变。
 

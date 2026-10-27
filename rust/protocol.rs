@@ -79,57 +79,6 @@ pub fn delete_batch_finished(states: &[DeleteProtocol], synced: bool) -> bool {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ReclaimEffect {
-    SyncParents,
-    RecordReceipt,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct ReclaimProtocol {
-    pub completed: u8,
-    pub failed: bool,
-}
-
-pub fn reclaim_start() -> ReclaimProtocol {
-    ReclaimProtocol {
-        completed: 0,
-        failed: false,
-    }
-}
-
-pub fn reclaim_next(state: &ReclaimProtocol) -> Option<ReclaimEffect> {
-    if state.failed {
-        return None;
-    }
-    match state.completed {
-        0 => Some(ReclaimEffect::SyncParents),
-        1 => Some(ReclaimEffect::RecordReceipt),
-        _ => None,
-    }
-}
-
-pub fn reclaim_advance(state: ReclaimProtocol, success: bool) -> ReclaimProtocol {
-    if state.failed || state.completed >= 2 {
-        return state;
-    }
-    if success {
-        ReclaimProtocol {
-            completed: state.completed + 1,
-            failed: false,
-        }
-    } else {
-        ReclaimProtocol {
-            completed: state.completed,
-            failed: true,
-        }
-    }
-}
-
-pub fn reclaim_finished(state: &ReclaimProtocol) -> bool {
-    !state.failed && state.completed == 2
-}
-
-#[derive(Clone, Copy, Debug)]
 pub struct PackStatus {
     pub sealed: bool,
     pub owned: bool,

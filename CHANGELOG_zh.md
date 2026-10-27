@@ -2,6 +2,12 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.6
+
+- 复用已确认的 writer registry 状态并为操作查找建立索引；不确定结果后重建。只缓存完整同步成功的 writer 目录，并保持 inode 身份。保留既有 publication WAL 屏障与 wire format。
+- 将 GC 物理删除与目录同步移到 pool catalog 锁外；回执绑定本轮完成的计划，允许 collector 重叠执行且不消费新加入的 pending 工作。
+- 为交替读取缓存最多八条已认证 extent 索引。扩展协议模型与实际回归，将真实 Rust 代码变异检查加入 CI，新增可重放的元数据开销探针。暂不实现元数据历史／回执退休和压缩。
+
 ## 0.1.5
 
 ### 所有权安全

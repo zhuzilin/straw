@@ -13,6 +13,7 @@ pub type CollectionResult<E> = Result<
     crate::gc_collection::Collected,
     crate::gc_batch::Failure<crate::gc_collection::Error<E, E, E>>,
 >;
+#[cfg(test)]
 pub type QueueCollectionResult<E> =
     Result<crate::gc_collection::Collected, crate::gc_collection::QueueFailure<E, E, E>>;
 
@@ -309,6 +310,7 @@ impl<S: Source> Catalog<S> {
 }
 
 impl<S: Source> Catalog<S> {
+    #[cfg(test)]
     pub(crate) fn collect_queue_native<L, H, P>(
         &mut self,
         prepared: crate::queue_gc::Prepared<'_>,

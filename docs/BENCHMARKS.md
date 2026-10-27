@@ -124,6 +124,25 @@ dead. Failed runs, including capacity exhaustion, retain their root for inspecti
 the benchmark does not reset the queue, raise limits or restart automatically.
 Root budgets do not apply to the external report/trace directory.
 
+## Metadata and small reads
+
+Run the same probe against each installed wheel to measure the cost of writer
+history and alternating extent reads:
+
+```sh
+python verification/storage/probes/metadata_scaling.py \
+  --count 1000 --output /tmp/straw-metadata.json
+```
+
+Use `--parent` to select a filesystem and `--online-gc` to include catalog work.
+The probe uses a private temporary root, closes its stores before removal, and
+records the native binary hash. It reports recent write medians, registry size,
+Linux process logical read bytes, sync hooks and 400 checked reads alternating
+between four extents. Journal/file sync hooks can name the same barrier; do not
+add them twice. Logical reads may hit caches and are not device/network traffic.
+Keep workload, mount, interpreter and GC mode fixed across comparisons; these
+small tests do not establish production throughput or tail-latency bounds.
+
 <a id="published-results"></a>
 
 ## Selected public measurements

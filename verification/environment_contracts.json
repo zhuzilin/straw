@@ -133,7 +133,8 @@
       "status": "assumption_in_model",
       "statement": "Catalog mutation, GC scan-to-tombstone and reactivation recheck-to-owner-append serialize under a stable shared lock inode, with fresh durable state. Payload authentication may run outside the lock but cannot authorize from a stale snapshot.",
       "sources": [
-        "verification/common/tla/EnvironmentCatalog.tla"
+        "verification/common/tla/EnvironmentCatalog.tla",
+        "rust/gc_plan.rs"
       ],
       "evidence": [
         "verification/gc/probes/gc_cross_client.py",
@@ -142,11 +143,12 @@
         "rust/gc.rs",
         "rust/identities.rs",
         "rust/catalog_state.rs",
-        "rust/catalog_transaction.rs"
+        "rust/catalog_transaction.rs",
+        "tests/test_gc_concurrency.py"
       ],
       "review": {
         "provided_by": "POSIX advisory locking, truthful device/inode metadata and a stable shared catalog inode throughout active transactions; straw must establish correctly bound critical sections and durable state.",
-        "implementation_obligation": "Keep scan-to-mark and recheck-to-owner-append inside the correct lock after refresh. Bind every Config argument to the opened pool/run; check fresh-open device/inode against the locked log; reject uncertain cached state before all operations and successful transaction return.",
+        "implementation_obligation": "Keep scan-to-mark and recheck-to-owner-append inside the correct lock after refresh. Bind every Config argument to the opened pool/run; check fresh-open device/inode against the locked log; reject uncertain cached state before all operations and successful transaction return. Physical GC may release the catalog lock only after durable permanent tombstones bind an exact plan; reacquire and refresh the same catalog before recording receipts for completed plan targets still pending, without consuming newer work.",
         "unproved": "TLC checks finite protocol instances; native API regressions and call-chain review check concrete implementations. There is no implementation-level or unbounded refinement proof. See docs/DESIGN.md#review for actual entry points, failure windows and external premises."
       }
     },
@@ -232,14 +234,16 @@
       "status": "assumption_in_model",
       "statement": "For a permanently tombstoned pack, a successful modeled Unlink (including trustworthy NotFound) means current absence; SyncParent success persists it. Partial failure may change current/durable state. No external recreation; real stat/unlink/fsync adapter conformance is unproved.",
       "sources": [
-        "verification/common/tla/EnvironmentPersistence.tla"
+        "verification/common/tla/EnvironmentPersistence.tla",
+        "rust/gc_plan.rs"
       ],
       "evidence": [
-        "tests/test_online_gc.py"
+        "tests/test_online_gc.py",
+        "tests/test_gc_concurrency.py"
       ],
       "review": {
         "provided_by": "Filesystem unlink and directory sync responses for a permanently tombstoned path; peers do not recreate it.",
-        "implementation_obligation": "Call unlink, accept only success or trustworthy unlink NotFound, and sync every affected parent before completion.",
+        "implementation_obligation": "Call unlink, accept only success or trustworthy unlink NotFound, and sync every affected parent before completion. Overlapping collectors must independently complete every parent barrier for their captured targets; receipt deduplication may remove only already-completed pending targets and never the permanent tombstones.",
         "unproved": "Trustworthiness of unlink NotFound and real syscall/controller/catalog correspondence are not proved."
       }
     },
@@ -357,11 +361,12 @@
       ],
       "evidence": [
         "rust/directory.rs",
-        "rust/store.rs"
+        "rust/store.rs",
+        "verification/runners/check_mutations.py"
       ],
       "review": {
         "provided_by": "Filesystem creation/barriers and stable accessible directory identities, aliases, mounts and root supply the resolved parent chain.",
-        "implementation_obligation": "Account for partial creation and sync every required ancestor even if its name already exists; preserve completed earlier barriers and pending obligations after errors.",
+        "implementation_obligation": "Account for partial creation and sync every required ancestor even if its name already exists; preserve completed earlier barriers and pending obligations after errors. A writer may cache a fully confirmed ancestor chain only after every barrier succeeds, pinning the directory inode and checking its current name; failed initialization creates no cache entry and GC parent repair remains uncached.",
         "unproved": "TLC checks finite protocol instances; native API regressions and call-chain review check concrete implementations. There is no implementation-level or unbounded refinement proof. See docs/DESIGN.md#review for actual entry points, failure windows and external premises."
       }
     },
@@ -873,11 +878,12 @@
         "verification/gc/tla/WriterRetirement.tla",
         "rust/writer_gate.rs",
         "rust/gc_writer.rs",
-        "rust/store.rs"
+        "rust/store.rs",
+        "verification/runners/check_mutations.py"
       ],
       "review": {
         "provided_by": "OS/filesystem gate exclusion, process-exit descriptor handling, completion/cancellation of submitted I/O, immutable namespace identities and synchronization semantics; application scheduling and repeated retirement calls supply progress.",
-        "implementation_obligation": "Bind every Store mutation to its exact incarnation gate, check the durable fence while holding it, register exact operation/owner/dependency evidence before holds, replay uncertain registry outcomes, stage all recovered results before releasing exact preparation owners, preserve unrelated owners, drain physical files, seal reservations and persist the receipt last. Parse and validate the registry without accepting invented completion evidence. The checked writer_ownership loops must validate every selected owner against registry evidence, cover each held path using dependencies registered for that same owner, and select precisely the unsealed packs whose canonical parent matches the writer directory. Native catalog snapshots, dependency-closure certification and canonical-parent comparison remain separate leaf correspondences. Recovery authenticates complete registered results before staging; permanently corrupt results reject recover, while abandon makes no readable-result claim.",
+        "implementation_obligation": "Bind every Store mutation to its exact incarnation gate, check the durable fence while holding it, register exact operation/owner/dependency evidence before holds, replay uncertain registry outcomes, stage all recovered results before releasing exact preparation owners, preserve unrelated owners, drain physical files, seal reservations and persist the receipt last. Parse and validate the registry without accepting invented completion evidence. The checked writer_ownership loops must validate every selected owner against registry evidence, cover each held path using dependencies registered for that same owner, and select precisely the unsealed packs whose canonical parent matches the writer directory. Native catalog snapshots, dependency-closure certification and canonical-parent comparison remain separate leaf correspondences. Recovery authenticates complete registered results before staging; permanently corrupt results reject recover, while abandon makes no readable-result claim. Reuse registry state only after reacquiring and checking the exact gate/fence and fresh log identity/length, with an entirely confirmed and applied prefix. Mark the registry cache uncertain before append/application, including caught unwind, and rebuild it after any uncertain outcome.",
         "unproved": "TLC checks finite protocol instances; native API regressions and call-chain review check concrete implementations. There is no implementation-level or unbounded refinement proof. See docs/DESIGN.md#review for actual entry points, failure windows and external premises."
       }
     },
@@ -1044,7 +1050,8 @@
         "ENV-WAL-RECOVERY",
         "ENV-CATALOG-SERIAL",
         "ENV-FAIR",
-        "ENV-STABILIZE"
+        "ENV-STABILIZE",
+        "ENV-WRITER-RETIREMENT"
       ]
     },
     "CatalogReadBuffer": {
@@ -1512,6 +1519,18 @@
       ],
       "environment_modules": [
         "verification/gc/tla/EnvironmentWriterRetirement.tla"
+      ]
+    },
+    "GCConcurrentDeletion": {
+      "environment_modules": [
+        "verification/common/tla/EnvironmentPersistence.tla"
+      ],
+      "contracts": [
+        "ENV-SYNC",
+        "ENV-DELETE-FAILURE",
+        "ENV-GC-IO",
+        "ENV-CATALOG-SERIAL",
+        "ENV-PEERS"
       ]
     }
   },

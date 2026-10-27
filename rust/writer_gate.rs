@@ -248,14 +248,43 @@ impl Permit {
     fn bound(&mut self) -> Result<()> {
         self.access.bound().map_err(access_error)
     }
-    pub(crate) fn registry(&mut self, fault: &mut Fault<'_>) -> Result<Registry> {
+    pub(crate) fn registry(
+        &mut self,
+        cached: Option<Registry>,
+        fault: &mut Fault<'_>,
+    ) -> Result<Registry> {
         self.bound()?;
-        Registry::open(
-            &self.directory.join("operations"),
-            &self.descriptor,
-            false,
-            fault,
-        )
+        let root = self.directory.join("operations");
+        if let Some(mut registry) = cached {
+            // No other writer can append this incarnation's log while its gate
+            // is held. A retiree permanently fences it before writing. Rebind
+            // to a fresh descriptor and reuse only a confirmed, fully applied
+            // prefix of the exact same log; uncertain outcomes rebuild it.
+            let mut fresh = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(root.join("control/journal.log"))?;
+            if registry.journal.path() != root.join("control/journal.log")
+                || identity(&fresh)? != registry.identity
+            {
+                return fail("UnsafeRecovery", "Writer registry identity changed");
+            }
+            if fresh.metadata()?.len() < registry.confirmed {
+                return fail(
+                    "UnsafeRecovery",
+                    "Writer registry lost its confirmed prefix",
+                );
+            }
+            if registry.ready
+                && !registry.journal.poisoned
+                && fresh.metadata()?.len() == registry.journal.state.offset
+            {
+                fresh.seek(SeekFrom::Start(registry.journal.state.offset))?;
+                registry.journal.file = Some(fresh);
+                return Ok(registry);
+            }
+        }
+        Registry::open(&root, &self.descriptor, false, fault)
     }
     pub(crate) fn receipt(
         &mut self,
@@ -386,15 +415,20 @@ impl crate::writer_gate_flow::Persistence for MarkerIo<'_, '_> {
 pub(crate) type Operation = crate::writer_registry::Operation;
 pub(crate) struct Registry {
     journal: Journal,
-    operations: Vec<Operation>,
+    operations: crate::writer_registry::Operations,
     retired_results: Vec<Value>,
+    identity: (u64, u64),
+    confirmed: u64,
+    ready: bool,
 }
 impl Registry {
-    fn open(root: &Path, identity: &Value, read_only: bool, fault: &mut Fault<'_>) -> Result<Self> {
-        let journal = Journal::open(root, identity, true, read_only, &mut |point| {
+    fn open(root: &Path, expected: &Value, read_only: bool, fault: &mut Fault<'_>) -> Result<Self> {
+        let journal = Journal::open(root, expected, true, read_only, &mut |point| {
             fault(&format!("writer_registry:{point}"))
         })?;
-        let mut operations = Vec::new();
+        let identity = identity(journal.file.as_ref().unwrap())?;
+        let confirmed = journal.state.offset;
+        let mut operations = crate::writer_registry::Operations::default();
         let mut retired_results = Vec::new();
         if !crate::writer_registry::replay(
             &mut operations,
@@ -403,8 +437,8 @@ impl Registry {
         ) {
             return fail("CorruptData", "Invalid writer operation history");
         }
-        let prefix = format!("publication:{}:", field(identity, "writer_id")?);
-        for op in &operations {
+        let prefix = format!("publication:{}:", field(expected, "writer_id")?);
+        for op in operations.iter() {
             if let Some(owner) = &op.evidence.owner
                 && (!owner.starts_with(&prefix) || &op.evidence.key != owner)
             {
@@ -418,10 +452,13 @@ impl Registry {
             journal,
             operations,
             retired_results,
+            identity,
+            confirmed,
+            ready: true,
         })
     }
     fn apply_to(
-        operations: &mut Vec<Operation>,
+        operations: &mut crate::writer_registry::Operations,
         retired_results: &mut Vec<Value>,
         sequence: u64,
         value: &Value,
@@ -434,6 +471,8 @@ impl Registry {
         Ok(())
     }
     fn append(&mut self, event: Value, fault: &mut Fault<'_>) -> Result<()> {
+        // Remains false across an I/O error, partial application or unwind.
+        self.ready = false;
         let sequence = self.journal.append(&json!([event]), &mut |point| {
             fault(&format!("writer_registry:{point}"))
         })?;
@@ -442,7 +481,10 @@ impl Registry {
             &mut self.retired_results,
             sequence,
             &event,
-        )
+        )?;
+        self.confirmed = self.journal.state.offset;
+        self.ready = true;
+        Ok(())
     }
     pub(crate) fn begin(
         &mut self,
@@ -493,5 +535,82 @@ impl Registry {
             .filter(|op| !op.done)
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_reuses_only_confirmed_state_and_rebuilds_after_caught_unwind() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let gate = Gate::create(root.path(), "run", &"a".repeat(32), &mut |_| Ok(()))?;
+        let mut permit = gate.enter(root.path(), "run")?;
+        let mut registry = permit.registry(None, &mut |_| Ok(()))?;
+        let op = registry.begin("request", None, &[], &mut |_| Ok(()))?;
+        drop(permit);
+
+        let mut permit = gate.enter(root.path(), "run")?;
+        registry = permit.registry(Some(registry), &mut |_| {
+            panic!("confirmed registry was replayed")
+        })?;
+        let results = vec![json!({"result":"kept"})];
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.results(op, &results, &[], &mut |point| {
+                if point == "writer_registry:after_journal_sync" {
+                    panic!("reply lost");
+                }
+                Ok(())
+            })
+        }));
+        assert!(unwind.is_err());
+        assert!(!registry.ready);
+        drop(permit);
+
+        let mut permit = gate.enter(root.path(), "run")?;
+        let mut syncs = 0;
+        registry = permit.registry(Some(registry), &mut |point| {
+            if point == "writer_registry:before_file_sync" {
+                syncs += 1;
+            }
+            Ok(())
+        })?;
+        assert!(syncs > 0);
+        assert_eq!(
+            crate::writer_registry::receipt(&registry.operations, "request"),
+            Some(&results)
+        );
+        assert_eq!(registry.operations.len(), 1);
+        registry.done_key("request", &mut |_| Ok(()))?;
+        assert!(registry.pending().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn registry_rejects_replaced_inode_and_truncated_confirmed_prefix() -> Result<()> {
+        for replace in [false, true] {
+            let root = tempfile::tempdir()?;
+            let gate = Gate::create(root.path(), "run", &"b".repeat(32), &mut |_| Ok(()))?;
+            let mut permit = gate.enter(root.path(), "run")?;
+            let mut registry = permit.registry(None, &mut |_| Ok(()))?;
+            registry.begin("request", None, &[], &mut |_| Ok(()))?;
+            let path = registry.journal.path().to_path_buf();
+            drop(permit);
+            if replace {
+                let other = path.with_extension("other");
+                std::fs::copy(&path, &other)?;
+                std::fs::rename(other, &path)?;
+            } else {
+                OpenOptions::new().write(true).open(&path)?.set_len(0)?;
+            }
+            let mut permit = gate.enter(root.path(), "run")?;
+            let error = match permit.registry(Some(registry), &mut |_| Ok(())) {
+                Ok(_) => panic!("changed registry accepted"),
+                Err(error) => error,
+            };
+            assert_eq!(error.kind, "UnsafeRecovery");
+        }
+        Ok(())
     }
 }

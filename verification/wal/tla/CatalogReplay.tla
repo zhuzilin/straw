@@ -1,9 +1,9 @@
 -------------------------- MODULE CatalogReplay --------------------------
 EXTENDS Naturals, EnvironmentPersistence, EnvironmentProgress
-CONSTANTS Mutation, Tail
+CONSTANTS Mutation, Tail, ReuseConfirmed
 ASSUME /\ Mutation \in {"none", "keep_cache", "keep_owners", "confirm_before_sync",
-                        "late_prepare", "unconditional_invalidation"}
-       /\ Tail \in BOOLEAN
+                        "late_prepare", "unconditional_invalidation", "reuse_dirty"}
+       /\ Tail \in BOOLEAN /\ ReuseConfirmed \in BOOLEAN
 \* Prefix 1 is confirmed. Complete frame 2 adds an owner, but its writer failed
 \* before sync. Storage may lose that unconfirmed tail while this client lives.
 \* One serialized refresh is modeled; byte framing and peer appends are outside.
@@ -12,10 +12,15 @@ vars == <<phase, written, durable, known, offset, cachedOwner, rebuild, unstable
 Init == /\ phase = "refresh" /\ written = (IF Tail THEN 2 ELSE 1) /\ durable = 1 /\ known = 1
         /\ offset = 1 /\ cachedOwner = FALSE /\ rebuild = FALSE /\ unstable = TRUE
 Begin == /\ phase = "refresh"
-         /\ phase' = IF written < known THEN "error" ELSE "read"
-         /\ offset' = IF rebuild THEN 0 ELSE offset
-         /\ cachedOwner' = IF rebuild /\ Mutation # "keep_owners" THEN FALSE ELSE cachedOwner
+         /\ LET reuse == ReuseConfirmed /\ written = known /\ offset = known
+                         /\ (~rebuild \/ Mutation = "reuse_dirty")
+            IN /\ phase' = IF written < known THEN "error" ELSE IF reuse THEN "done" ELSE "read"
+               /\ offset' = IF rebuild /\ ~reuse THEN 0 ELSE offset
+               /\ cachedOwner' = IF rebuild /\ ~reuse /\ Mutation # "keep_owners" THEN FALSE ELSE cachedOwner
          /\ UNCHANGED <<written, durable, known, rebuild, unstable>>
+\* ReuseConfirmed models an exclusively owned writer registry's fast path.
+\* Its caller separately checks the gate/fence, exact log identity and length.
+\* A caught partial apply never qualifies, even if the physical length matches.
 Read == /\ phase = "read"
         /\ phase' = IF offset > written THEN "error" ELSE "sync"
         /\ offset' = IF offset > written THEN offset ELSE written

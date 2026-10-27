@@ -392,7 +392,7 @@ impl Config {
         fault: &mut Fault<'_>,
     ) -> Result<Vec<Value>> {
         let mut permit = Permit::retire(&self.root, &self.run_id, writer)?;
-        let registry = permit.registry(fault)?;
+        let registry = permit.registry(None, fault)?;
         let recovered = registry.retired_results();
         let pending = registry.pending();
         let mut retirement = Retirement {
@@ -700,7 +700,7 @@ mod tests {
         assert_eq!(seen, 3);
         config.catalog(|c| c.consume(&config, &refs, &mut |_| Ok(())))?;
         let mut permit = Permit::retire(&config.root, &config.run_id, writer.writer_id())?;
-        let pending = permit.registry(&mut |_| Ok(()))?.pending();
+        let pending = permit.registry(None, &mut |_| Ok(()))?.pending();
         let intermediates = pending
             .iter()
             .find_map(|op| op.results.as_ref())

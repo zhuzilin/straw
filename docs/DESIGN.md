@@ -158,6 +158,11 @@ and seeks to the valid end. Rebuild business indexes, receipts and derived cache
 from that same prefix before reuse. Never lose an acknowledged prefix. A complete
 uncertain frame may survive; its retry must not produce a second acceptance.
 
+An exclusively owned writer registry may reuse its confirmed, fully applied
+prefix and operation indexes after reacquiring the exact gate and checking the
+fresh log's inode and length. An uncertain append or application invalidates that
+cache and requires replay. This does not compact history or remove receipts.
+
 <a id="r1"></a>
 
 **R1 — Preparation and durability.** Use a fresh non-reused pack name. Register it
@@ -166,6 +171,10 @@ manifest. Capture the old append boundary before writing; incomplete cleanup mus
 never truncate an acknowledged prefix. Keep unresolved setup/cleanup state across
 errors. Synchronize data and required directory names, persist staging protection,
 then release preparation holds. Seal only after pending cleanup is resolved.
+Within one writer incarnation, a successfully synchronized ancestor chain may be
+reused while its directory inode stays pinned and matches the named directory.
+Failed initialization establishes no cache entry. New file names and payloads
+still require their own barriers; GC parent repair does not use this cache.
 
 <a id="r2"></a>
 
@@ -184,6 +193,10 @@ reference. Check extent bounds and selected frame/index agreement, authenticate
 the envelope and requested payload/checksum chunks, and bind tensor dtype/shape/
 length before returning or allocating payload. A cached index never skips
 record/envelope/payload validation. Empty typed ranges still validate layout.
+The session uses an LRU of at most eight indexes and an 8 MiB encoded-metadata
+budget; one oversized active index evicts all others. A miss authenticates before
+admission. A failed miss cannot select an unrelated cached index. Each session
+serializes its calls; independent sessions can read concurrently.
 
 <a id="r4"></a>
 
@@ -201,7 +214,7 @@ implementations remain external to finite protocol model checking.
 
 | Rule | TLA+ actions / properties | Deliberate abstraction |
 |---|---|---|
-| C3 | `WalRecovery`: Write/Fail/Scan/Truncate/RecoverSync, AcknowledgedSurvives, ReadyDurable. `CatalogTransaction`: BoundCaller, CacheMatchesPrefix, NoCachedAfterError. `CommitApplication`: Begin/Hook/Recover, AcceptedDataPresent | Frame parts abstract bytes; hashes/parser and lock service are external. Actual callbacks and all public guards need implementation review. |
+| C3 | `WalRecovery`: Write/Fail/Scan/Truncate/RecoverSync, AcknowledgedSurvives, ReadyDurable. `CatalogTransaction`: BoundCaller, CacheMatchesPrefix, NoCachedAfterError; `CatalogReplay`: CoherentReady, confirmed-prefix reuse and dirty-cache rejection. `CommitApplication`: Begin/Hook/Recover, AcceptedDataPresent | Frame parts abstract bytes; hashes/parser and lock service are external. Actual callbacks and all public guards need implementation review. |
 | R1 | `PublicationPreparation`, `IncompletePublication`, `DirectoryDurability`, `ProvisionalHold`, `PublicationFinalization`: reservation, rollback, directory barriers, staging, sealing | Unique immutable names and truthful filesystem barriers; a live writer owns rollback authority. |
 | R2 | `PendingPublication`: OneCompletedFile, WriterFenced, DurableVerifiedReturn. `PublicationHandoff`: NoForgottenUnreturnedFile, CompletedHandoff. `StagingConsumption`: receipt/graph recovery | Failed responses can leave effects. Different API/request/content must not consume or overwrite unresolved output. |
 | R3 | `ReadAttempt`: Index/Frame/Envelope/Payload, NoUnverifiedReturn. `RangeRead`/`TypedRead`: authenticated ranges and layout. `NamespaceIdentity`: canonical bindings | Distinct wire/index/frame/envelope faults remain distinguishable. Warm caches authorize only an exact previously authenticated index, not record bytes. |
@@ -209,8 +222,8 @@ implementations remain external to finite protocol model checking.
 
 | Rules | Actual caller chain | Regression / counterexample entry |
 |---|---|---|
-| C3 | `journal_owner::{open,append_with,recover_with}` → `journal_io` → `journal_state`, `wal_append`, `wal_recovery`, `wal_source/sink`, `file_adapter`, `file_primitives`; `catalog_runtime::Transaction` → `catalog_transaction::execute`, `catalog_log`; `queue_application::{arm,apply,confirm,restore,permitted}` | `tests/test_wal_recovery.py`, `test_task_recovery.py`; native `gc` replacement-inode, nested-entry, caught-unwind, dirty-cache tests; `queue_application` callback/partial-body tests; byte-prefix/XOR and process-exit crash campaign |
-| R1–R2 | `Store::finish/publish_attempt/close`, `Config::finalize_publication` → `incomplete`, `pending`, `finalization`, `holding`; `gc::consume_once` → `staging_consumption` | `tests/test_publication_preparation.py`, `test_pending_publication.py`, `test_provisional_holds.py`, `test_commit_consumption.py`, `test_packed_store.py`; native streamed callback tests |
+| C3 | `journal_owner::{open,append_with,recover_with}` → `journal_io` → `journal_state`, `wal_append`, `wal_recovery`, `wal_source/sink`, `file_adapter`, `file_primitives`; `catalog_runtime::Transaction` → `catalog_transaction::execute`, `catalog_log`; `Store::enter_writer` → `writer_gate::{Permit::registry,Registry::append}`; `queue_application::{arm,apply,confirm,restore,permitted}` | `tests/test_wal_recovery.py`, `test_task_recovery.py`; native `gc` and `writer_gate` identity, caught-unwind and dirty-cache tests; `queue_application` callback/partial-body tests; byte-prefix/XOR and process-exit crash campaign |
+| R1–R2 | `Store::finish/publish_attempt/close/prepare_directory`, `Config::finalize_publication` → `incomplete`, `pending`, `finalization`, `holding`; `gc::consume_once` → `staging_consumption` | `tests/test_publication_preparation.py`, `test_pending_publication.py`, `test_provisional_holds.py`, `test_commit_consumption.py`, `test_packed_store.py`; native streamed callback and directory-cache failure/identity tests |
 | R3–R4 | `Reader` and read session in `rust/store.rs` → `record_index::Cache/Attempt`, `reference_node`, `extent_retry::run`, `bounds::frame_position/authenticated_span`, native read/hash operations | `tests/test_extent_visibility.py`, `test_read_session.py`, `test_extent_bounds.py`, `test_tensor_preflight.py`, `test_tensor_granularity.py`; TLC cold/warm cache, independent visibility, wrong index/frame/envelope/cache, payload corruption and stalled retry controls |
 
 </details>
@@ -241,20 +254,26 @@ compatibility API can perform authentication while already holding the lock.
 <a id="g3"></a>
 
 **G3 — Reclamation.** After C1's durable history retirement, prune only the current
-queue's obsolete owners. Under the catalog lock:
+queue's obsolete owners. The public store/coordinator collection path orders:
 
 ```
-discover sealed packs not reachable from any owner
-append permanent tombstones; sync catalog
-unlink every pending target (including those advisory stat calls missing)
+under the catalog lock: discover sealed unowned packs; mark and sync tombstones
+capture the exact pending target set and catalog identity; release lock and mutex
+unlink every captured target (including those advisory stat calls missing)
 sync every affected parent; repair/sync missing ancestor names if needed
-append reclamation receipts; sync catalog
+reacquire and refresh the same catalog; receipt only completed targets still pending
+sync the receipt before returning
 ```
 
 Unlink `NotFound` is idempotent absence, not durable deletion. Even an absent
 pending file needs its parent barrier. Other errors propagate and keep pending
 work. A receipt stops repeated deletion/accounting but retains the permanent
 tombstone; late retain cannot revive that path. Live extents protect whole packs.
+Collectors may overlap: unlink is idempotent, and every collector completes its
+own parent barriers. Never include targets added after this attempt's snapshot
+in its receipt. A failed attempt leaves durable pending work for a later call.
+The lower `LockedCatalog::collect` compatibility API retains its enclosing lock;
+one coordinator's own calls also remain serialized.
 Offline cleanup requires stopped clients, no shared catalog/queue markers, a
 complete accepted-root/path-binding trace and a fresh unchanged inspection.
 
@@ -281,13 +300,13 @@ latency bound or automatic background collector follows from this rule.
 |---|---|---|
 | G1 | `Ownership`: ReaderProtection, CheckpointProtection, NoDanglingReferences. `DurableHandoff`: ReadersProtected; independent reader/checkpoint/peer cases | Complete application roots must be supplied by straw callers; reference possession is not a root. Permanent-owner cases check safety without assuming release. |
 | G2 | `ReactivationRace`: Prepare/Verify/Recheck/Append; AuthenticatedRoot, CompleteAuthorizedClosure, NoDanglingRestore. `DependencyTraversal`: CompleteClosure | A complete authenticated graph is the lower read boundary. Cache context mismatches cause fresh authentication; owner/root mismatch rejects before any owner append. |
-| G3 | `GCDiscovery`, `GCBatchDeletion`, `GCParentRepair`, `GCReceipt`: discovery, mark, unlink, shared-parent/ancestor barriers, receipt; DurableCompletion, ReceiptIsSafe, ReceiptKeepsFence | Multi-parent and missing-parent obligations remain separate; stat is advisory. `OfflineRoots`/`OfflineAliases` add stopped-client and binding roots, not permission for concurrent cleanup. |
+| G3 | `GCConcurrentDeletion`: PlanFenced, ReceiptScoped, OwnedPresent; `GCDiscovery`, `GCBatchDeletion`, `GCParentRepair`, `GCReceipt`: discovery, mark, unlink, shared-parent/ancestor barriers, receipt; DurableCompletion, ReceiptIsSafe, ReceiptKeepsFence | Multi-parent and missing-parent obligations remain separate; stat is advisory. `OfflineRoots`/`OfflineAliases` add stopped-client and binding roots, not permission for concurrent cleanup. The concurrent model checks safety; retry/progress obligations remain in the lower GC models. |
 | G4 | `WriterRetirement`: register/hold/submit/finish, fence/drain/authenticate/recover/release/settle/seal/receipt; AuthenticatedRecovery, ReceiptSound, RequiredProgress. `WriterLifetime`: in-flight work. `DurableHandoff`: EventuallyReclaimed | Gate handoff must finish/cancel old remote I/O. Release and registry settlement are distinct crash steps. Liveness needs stabilization, scheduling and actual caller retries. |
 
 | Rules | Actual caller chain | Regression / counterexample entry |
 |---|---|---|
 | G1–G2 | `queue_roots::collect`, `queue_reader`, `queue_gc::prepare/require`; `gc::VerifiedReactivation::verify`, `check_reactivation_owners`, `retain_verified_inner`, `closure_inner` → `closure::collect`, `reference_node`, `record_index` | `tests/test_online_gc.py`, `test_queue_gc_roots.py`, `test_path_identity.py`; `tests/native.rs` reactivation pool/run, missing-source and owner-replacement races; TLC stale snapshot, wrong context/root and missing dependency controls |
-| G3 | `Coordinator` collection → `queue_retirement`, `queue_gc_prepare`, `gc_collection::Batch::run` → `gc_mark`, `gc_batch`, `gc_io`, `directory_io`, `gc_receipt` | `tests/test_gc_batch.py`, `test_gc_receipts.py`, `test_gc_missing_parent.py`, `test_offline_aliases.py`; native absent-file/failed-barrier and shared-parent tests; TLC early receipt, lost tombstone, missing parent controls |
+| G3 | `Coordinator` collection → `queue_retirement`, `queue_gc_prepare`, `gc_plan::{plan_collection,Plan::execute,complete_collection}` → `gc_mark`, `gc_batch`, `gc_io`, `directory_io`, `gc_receipt` | `tests/test_gc_concurrency.py`, `test_gc_batch.py`, `test_gc_receipts.py`, `test_gc_missing_parent.py`, `test_offline_aliases.py`; native absent-file/failed-barrier and shared-parent tests; TLC early receipt, lost tombstone, missing parent controls |
 | G4 | `Store` mutation → `writer_gate_flow`, `writer_gate::Registry`; `Config::retire_writer` → `writer_retirement::execute`, `gc_writer::Retirement/Recovery`, `writer_registry::reconcile_registered`, `writer_ownership::authenticate_all` | `tests/test_writer_retirement.py`; native `gc_writer` corruption, recover/abandon and registered-owner tests; TLC death-unlock, skip registry/authentication, early release/receipt and conditional progress |
 
 </details>
@@ -314,6 +333,9 @@ reader/queue-checkpoint roots, receipts before directory sync and existing owner
 protecting the wrong root. The tables locate actual callers; public `checkpoint:*`
 owners and queue checkpoints require different tests. Run the checks in
 [contributing](../CONTRIBUTING.md#checks) and report current inputs and results.
+`check_mutations.py` also checks selected concrete Rust faults against named
+runtime regressions; compilation errors, missing tests and timeouts do not count
+as detections.
 
 Finite models, concrete execution tests and source review are complementary;
 they do not establish complete Rust/Python/FFI equivalence, unbounded theorems or

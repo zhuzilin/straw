@@ -72,6 +72,17 @@ Trace 写入统计带 framing 的 extent 字节，同时单独报告 payload 字
 
 `--max-files`、`--max-gib` 限制有限测试的规模。Benchmark 在临时 root 外保存 JSON 报告、不含载荷的 `.logs.tar.gz` 以及 `.cleanup.json`。成功结束时先确认自有 worker 已停止，再删除 root；SSH 断开并不能证明远端进程已退出。失败的测试（包括容量用尽）会保留 root 供检查，不自动重置队列、提高上限或重新启动。无法检查或停止远端机器时同样保留 root。确认 worker 死亡前不要删除。Root 预算不覆盖外部报告/trace 目录。
 
+## 元数据与小范围读取
+
+对每个已安装 wheel 运行同一探针，测量 writer 历史和交替 extent 读取的开销：
+
+```sh
+python verification/storage/probes/metadata_scaling.py \
+  --count 1000 --output /tmp/straw-metadata.json
+```
+
+`--parent` 选择文件系统，`--online-gc` 纳入 catalog 工作。探针使用私有临时 root，关闭 store 后清理，并记录原生二进制哈希。结果包括最近写入中位数、registry 大小、Linux 进程逻辑读取量、同步 hook，以及在四个 extent 之间交替进行的 400 次认证读取。Journal／file sync hook 可能指向同一次屏障，不应重复相加。逻辑读取可能命中缓存，不是设备／网络流量。对照应保持负载、挂载、解释器和 GC 模式一致；这些小型测试不代表生产吞吐或尾延迟上界。
+
 <a id="published-results"></a>
 
 ## 精选公开基准

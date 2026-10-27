@@ -1,6 +1,6 @@
 //! The production batch deletion dispatch. Native effects must bind each index
 //! to its durable tombstone and stable parent directory; errors may have effects.
-use crate::protocol::{self, DeleteEffect, ReclaimEffect};
+use crate::protocol::{self, DeleteEffect};
 use std::collections::BTreeSet;
 
 pub trait BatchModel {
@@ -42,6 +42,15 @@ pub trait Effects: BatchModel {
 /// Already-absent names still contribute their parent; a receipt may survive
 /// an error response, so its precondition requires durable absence already.
 pub fn collect<E: Effects>(effects: &mut E) -> Result<Statistics, Failure<E::Error>> {
+    let statistics = delete(effects)?;
+    effects.receipt().map_err(Failure::Effect)?;
+    Ok(statistics)
+}
+
+/// Physical half of collection. A caller may release the catalog lock only
+/// after durably marking these exact immutable names. Returning this result
+/// authorizes a later receipt, never an earlier one.
+pub fn delete<E: Effects>(effects: &mut E) -> Result<Statistics, Failure<E::Error>> {
     let count = effects.target_count();
     let mut parents = BTreeSet::new();
     let mut pending = Vec::new();
@@ -75,34 +84,11 @@ pub fn collect<E: Effects>(effects: &mut E) -> Result<Statistics, Failure<E::Err
         index += 1;
     }
 
-    let mut state = protocol::reclaim_start();
-
-    loop {
-        let effect = match protocol::reclaim_next(&state) {
-            Some(effect) => effect,
-            None => {
-                if !protocol::reclaim_finished(&state) {
-                    return Err(Failure::Protocol);
-                }
-                return Ok(Statistics { files, bytes });
-            }
-        };
-        match effect {
-            ReclaimEffect::SyncParents => {
-                for parent in &parents {
-                    effects.sync_parent(parent).map_err(Failure::Effect)?;
-                }
-
-                if !protocol::delete_batch_finished(&pending, true) {
-                    return Err(Failure::Protocol);
-                }
-            }
-            ReclaimEffect::RecordReceipt => {
-                if let Err(error) = effects.receipt() {
-                    return Err(Failure::Effect(error));
-                }
-            }
-        }
-        state = protocol::reclaim_advance(state, true);
+    for parent in &parents {
+        effects.sync_parent(parent).map_err(Failure::Effect)?;
     }
+    if !protocol::delete_batch_finished(&pending, true) {
+        return Err(Failure::Protocol);
+    }
+    Ok(Statistics { files, bytes })
 }

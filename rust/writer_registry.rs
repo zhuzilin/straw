@@ -130,6 +130,33 @@ pub struct Results {
 }
 pub type Operation = crate::writer_retirement::Operation<Evidence, Results>;
 
+/// Derived indexes over the same ordered durable operation history. These are
+/// rebuilt together on recovery; settlement never removes receipt evidence.
+#[derive(Default)]
+pub struct Operations {
+    entries: Vec<Operation>,
+    keys: std::collections::HashMap<String, Vec<usize>>,
+    owners: std::collections::HashMap<String, Vec<usize>>,
+}
+
+impl std::ops::Deref for Operations {
+    type Target = [Operation];
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+
+impl Operations {
+    fn settle_named(&mut self, name: &str, by_owner: bool) {
+        let index = if by_owner { &self.owners } else { &self.keys };
+        if let Some(positions) = index.get(name) {
+            for &position in positions {
+                crate::writer_retirement::settle_operation(&mut self.entries[position]);
+            }
+        }
+    }
+}
+
 fn copy_values(values: &[Value]) -> Vec<Value> {
     let mut result = Vec::with_capacity(values.len());
     let mut index = 0;
@@ -142,7 +169,7 @@ fn copy_values(values: &[Value]) -> Vec<Value> {
 }
 
 pub fn begin(
-    operations: &mut Vec<Operation>,
+    operations: &mut Operations,
     frame: u64,
     sequence: u64,
     key: &str,
@@ -152,13 +179,28 @@ pub fn begin(
     if frame != sequence {
         return false;
     }
-    let owner = owner.map(|value| value.to_owned());
     let evidence = Evidence {
         key: key.to_owned(),
-        owner,
+        owner: owner.map(str::to_owned),
         dependencies: copy_values(dependencies),
     };
-    crate::writer_retirement::register_operation(operations, frame, evidence)
+    let position = operations.len();
+    if !crate::writer_retirement::register_operation(&mut operations.entries, frame, evidence) {
+        return false;
+    }
+    operations
+        .keys
+        .entry(key.to_owned())
+        .or_default()
+        .push(position);
+    if let Some(owner) = owner {
+        operations
+            .owners
+            .entry(owner.to_owned())
+            .or_default()
+            .push(position);
+    }
+    true
 }
 
 fn equal_values(old_values: &[Value], incoming: &[Value]) -> bool {
@@ -177,7 +219,7 @@ fn equal_values(old_values: &[Value], incoming: &[Value]) -> bool {
 }
 
 pub fn describe(
-    operations: &mut [Operation],
+    operations: &mut Operations,
     sequence: u64,
     roots: &[Value],
     intermediates: &[Value],
@@ -197,10 +239,10 @@ pub fn describe(
         roots: copy_values(roots),
         intermediates: copy_values(intermediates),
     };
-    crate::writer_retirement::remember_results(&mut operations[index], results, true)
+    crate::writer_retirement::remember_results(&mut operations.entries[index], results, true)
 }
 
-pub fn settle_ids(operations: &mut [Operation], ids: &[u64]) -> bool {
+pub fn settle_ids(operations: &mut Operations, ids: &[u64]) -> bool {
     let mut index = 0;
 
     while index < ids.len() {
@@ -210,13 +252,9 @@ pub fn settle_ids(operations: &mut [Operation], ids: &[u64]) -> bool {
         index += 1;
     }
 
-    index = 0;
-
-    while index < operations.len() {
-        if ids.contains(&operations[index].sequence) {
-            crate::writer_retirement::settle_operation(&mut operations[index]);
-        }
-        index += 1;
+    for id in ids {
+        let position = crate::writer_retirement::operation_position(operations, *id).unwrap();
+        crate::writer_retirement::settle_operation(&mut operations.entries[position]);
     }
     true
 }
@@ -250,7 +288,7 @@ pub fn keep_results(kept: &mut Vec<Value>, incoming: &[Value]) {
 }
 
 pub fn apply_event(
-    operations: &mut Vec<Operation>,
+    operations: &mut Operations,
     receipts: &mut Vec<Value>,
     frame: u64,
     event: &Event<'_>,
@@ -279,11 +317,11 @@ pub fn apply_event(
             settle_ids(operations, &ids)
         }
         Event::DoneOwner { owner } => {
-            crate::writer_retirement::settle_named(operations, owner, true);
+            operations.settle_named(owner, true);
             true
         }
         Event::DoneKey { key } => {
-            crate::writer_retirement::settle_named(operations, key, false);
+            operations.settle_named(key, false);
             true
         }
         Event::Retired {
@@ -300,7 +338,7 @@ pub fn apply_event(
 }
 
 pub fn apply_frame(
-    operations: &mut Vec<Operation>,
+    operations: &mut Operations,
     receipts: &mut Vec<Value>,
     frame: u64,
     value: &Value,
@@ -323,11 +361,7 @@ pub fn apply_frame(
     true
 }
 
-pub fn replay(
-    operations: &mut Vec<Operation>,
-    receipts: &mut Vec<Value>,
-    frames: &[Value],
-) -> bool {
+pub fn replay(operations: &mut Operations, receipts: &mut Vec<Value>, frames: &[Value]) -> bool {
     if frames.is_empty() {
         return false;
     }
@@ -348,18 +382,13 @@ pub fn replay(
 /// Settlement is deliberately irrelevant: Done records the internal handoff,
 /// not delivery of the reply to the caller. An unfinished later attempt also
 /// cannot hide a result already recorded for the same exact API/request key.
-pub fn receipt<'a>(operations: &'a [Operation], key: &str) -> Option<&'a Vec<Value>> {
-    let mut index = operations.len();
-
-    while index > 0 {
-        index -= 1;
-        if operations[index].evidence.key.as_str() == key
-            && let Some(results) = &operations[index].results
-        {
-            return Some(&results.roots);
-        }
-    }
-    None
+pub fn receipt<'a>(operations: &'a Operations, key: &str) -> Option<&'a Vec<Value>> {
+    operations.keys.get(key)?.iter().rev().find_map(|&index| {
+        operations[index]
+            .results
+            .as_ref()
+            .map(|results| &results.roots)
+    })
 }
 
 /// Each leaf is one named native action; selection of the exact registered

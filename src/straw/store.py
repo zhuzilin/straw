@@ -306,12 +306,13 @@ class SharedFilesystemStore(_RecordReader):
 
     @contextlib.contextmanager
     def read_session(self):
-        """Reuse the last authenticated immutable extent index for one operation.
+        """Reuse a bounded LRU of authenticated immutable extent indexes.
 
         Record envelopes and touched chunks are checked on every read. This
         does not retain storage ownership; callers must keep their existing pin
-        or durable owner until all reads finish. Closing drops the cached index.
+        or durable owner until all reads finish. Closing drops the cached indexes.
         Sessions belong to their creating process and must not cross a fork.
+        Calls within a session serialize; use independent sessions for parallel reads.
         """
         reader = _ReadSession(self)
         try:

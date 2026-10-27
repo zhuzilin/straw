@@ -52,15 +52,10 @@ pub struct Operation<D, R> {
 }
 
 pub fn operation_position<D, R>(operations: &[Operation<D, R>], sequence: u64) -> Option<usize> {
-    let mut index = 0;
-
-    while index < operations.len() {
-        if operations[index].sequence == sequence {
-            return Some(index);
-        }
-        index += 1;
-    }
-    None
+    // Registration admits strictly increasing WAL sequence numbers.
+    operations
+        .binary_search_by_key(&sequence, |op| op.sequence)
+        .ok()
 }
 
 pub fn register_operation<D, R>(
@@ -109,20 +104,5 @@ pub fn named_operation<D>(evidence: &Evidence<D>, name: &str, by_owner: bool) ->
         }
     } else {
         evidence.key.as_str() == name
-    }
-}
-
-pub fn settle_named<D, R>(
-    operations: &mut [Operation<Evidence<D>, R>],
-    name: &str,
-    by_owner: bool,
-) {
-    let mut index = 0;
-
-    while index < operations.len() {
-        if named_operation(&operations[index].evidence, name, by_owner) {
-            settle_operation(&mut operations[index]);
-        }
-        index += 1;
     }
 }

@@ -6,7 +6,6 @@ mod catalog_append;
 mod catalog_decode;
 mod catalog_event;
 mod catalog_frame;
-mod catalog_gc;
 mod catalog_json;
 mod catalog_log;
 mod catalog_namespace;

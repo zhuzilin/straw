@@ -71,6 +71,14 @@ jobs:
           cargo clippy --locked --all-targets --features python -- -D warnings
       - name: Run Rust tests
         run: cargo test --locked
+      - name: Check concrete protocol mutation regressions
+        run: python verification/runners/check_mutations.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: implementation-mutations
+          path: target/implementation-mutations/
+          if-no-files-found: warn
 
   python:
     name: Full suite / Python ${{ matrix.python }}

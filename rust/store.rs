@@ -50,6 +50,7 @@ pub struct Store {
     writer: String,
     gate: Option<crate::writer_gate::Gate>,
     writer_registry: Option<crate::writer_gate::Registry>,
+    directory: Option<(PathBuf, File)>,
     pack: Option<String>,
     last: Option<crate::finalization::Handoff<CompletedDescription>>,
     pending: Option<crate::pending::Pending<PublicationDescription>>,
@@ -60,8 +61,8 @@ pub struct Store {
     closed: bool,
     pid: u32,
 }
-/// A bounded read operation over immutable extents. Only the last authenticated
-/// index is retained; each record envelope and touched payload chunk is checked.
+/// A bounded index cache over immutable extents. Each record envelope and
+/// touched payload chunk is checked, including on a cached index hit.
 pub struct Reader {
     config: Config,
     last: crate::record_index::Cache,
@@ -253,7 +254,16 @@ impl Config {
         prepared: crate::queue_gc::Prepared<'_>,
         fault: &mut Fault<'_>,
     ) -> Result<Option<Value>> {
-        self.with_catalog(|catalog| catalog.collect_queue_transaction(self, prepared, fault))
+        self.catalog(|catalog| catalog.plan_collection(self, Some(prepared), fault))?
+            .map(|plan| plan.execute(self, fault))
+            .transpose()
+    }
+    /// Collect with the physical deletion and directory barriers outside the
+    /// pool-wide catalog lock. Durable tombstones fence every selected name.
+    pub fn collect_garbage(&self, fault: &mut Fault<'_>) -> Result<Option<Value>> {
+        self.catalog(|catalog| catalog.plan_collection(self, None, fault))?
+            .map(|plan| plan.execute(self, fault))
+            .transpose()
     }
 
     pub fn stage(&self, refs: &[Value], fault: &mut Fault<'_>) -> Result<()> {
@@ -865,6 +875,7 @@ impl Store {
             writer: uid(),
             gate: None,
             writer_registry: None,
+            directory: None,
             pack: None,
             last: None,
             pending: None,
@@ -917,6 +928,7 @@ impl Store {
             self.seal_pack(&permit, &mut |_| Ok(()))?;
         }
         self.closed = true;
+        self.directory = None;
         Ok(())
     }
     fn chunk_bytes(&self) -> usize {
@@ -936,13 +948,30 @@ impl Store {
             .as_ref()
             .unwrap()
             .enter(&self.config.root, &self.config.run_id)?;
-        // Recover while holding the same incarnation gate; a caught unwind or
-        // uncertain registry append never reuses a cached partial replay.
-        self.writer_registry = Some(permit.registry(fault)?);
+        // Taking the cache also invalidates it if refresh itself unwinds.
+        self.writer_registry = Some(permit.registry(self.writer_registry.take(), fault)?);
         Ok(permit)
     }
     pub fn writer_id(&self) -> &str {
         &self.writer
+    }
+
+    fn prepare_directory(&mut self, path: &Path, fault: &mut Fault<'_>) -> Result<()> {
+        if let Some((confirmed_path, held)) = &self.directory {
+            let fresh = File::open(path)?;
+            if confirmed_path != path
+                || crate::catalog_primitives::identity(held)?
+                    != crate::catalog_primitives::identity(&fresh)?
+            {
+                return fail("UnsafeRecovery", "Writer directory identity changed");
+            }
+            return Ok(());
+        }
+        // Only a completed ancestor barrier establishes this cache entry.
+        // Keep the directory inode pinned; existence alone is not evidence.
+        mkdir(path, fault)?;
+        self.directory = Some((path.to_path_buf(), File::open(path)?));
+        Ok(())
     }
     fn hold_preparation(
         &mut self,
@@ -1323,7 +1352,7 @@ impl Store {
         let prepared = (|| -> Result<(File, u64)> {
             self.config
                 .catalog(|c| c.pack(&self.config, &relative, false, fault))?;
-            mkdir(path.parent().unwrap(), fault)?;
+            self.prepare_directory(path.parent().unwrap(), fault)?;
             let mut opts = OpenOptions::new();
             opts.write(true);
             if self.config.target > 0 {
@@ -1720,6 +1749,49 @@ pub fn sync(file: &File, fault: &mut Fault<'_>) -> Result<()> {
 #[cfg(test)]
 mod directory_tests {
     use super::*;
+
+    #[test]
+    fn writer_reuses_only_fully_synced_directory_identity() -> Result<()> {
+        let private = tempfile::tempdir()?;
+        let config = Config::new(
+            private.path().to_str().unwrap(),
+            "run",
+            vec!["raw".into()],
+            1024,
+            1024,
+            1024,
+        )?;
+        let mut store = Store::new(config);
+        let leaf = private.path().join("writer");
+        assert!(
+            store
+                .prepare_directory(&leaf, &mut |_| Err(Error::new(
+                    "StorageUnavailable",
+                    "barrier"
+                )))
+                .is_err()
+        );
+        assert!(store.directory.is_none());
+        let mut barriers = 0;
+        store.prepare_directory(&leaf, &mut |_| {
+            barriers += 1;
+            Ok(())
+        })?;
+        assert_eq!(barriers, leaf.canonicalize()?.ancestors().count());
+        store.prepare_directory(&leaf, &mut |_| {
+            panic!("repeated confirmed ancestor barrier")
+        })?;
+        fs::rename(&leaf, private.path().join("old"))?;
+        fs::create_dir(&leaf)?;
+        assert_eq!(
+            store
+                .prepare_directory(&leaf, &mut |_| Ok(()))
+                .unwrap_err()
+                .kind,
+            "UnsafeRecovery"
+        );
+        Ok(())
+    }
 
     #[test]
     fn every_failed_directory_barrier_is_retried_with_all_ancestors() -> Result<()> {

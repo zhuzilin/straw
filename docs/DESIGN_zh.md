@@ -104,9 +104,13 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 
 恢复认证 framing 和精确哈希范围，按序重放完整事务，拒绝完整损坏 frame，只截断不完整残尾，完成同步并定位到有效末尾。业务索引、回执和派生缓存必须从同一前缀重建后才能复用。不得丢失已确认前缀。完整的不确定 frame 可以存活；重试不得产生第二次接受。
 
+独占 writer registry 可以在重新取得准确 gate、核对新打开日志的 inode 和长度后，复用已确认且完整应用的前缀及操作索引。不确定追加或应用会使缓存失效，必须重放。该优化不压缩历史，也不删除回执。
+
 <a id="r1"></a>
 
 **R1 — 准备与持久化。** 使用新且不复用的 pack 名称。数据 I/O 前登记为 open，写 manifest 前 retain 依赖准备 owner。写入前捕获旧追加边界；不完整清理不得截断已确认前缀。错误后保留未完成的准备／清理状态。同步数据及必要目录名称，持久化 staging 保护，之后才释放准备持有者。解决待清理状态后才能 seal。
+
+同一 writer incarnation 内，完整同步成功的祖先链可以复用，但必须保持目录 inode 打开并核对当前名称仍指向它。初始化失败不能建立缓存。新文件名称和 payload 仍需各自屏障；GC 修复父目录不使用这个缓存。
 
 <a id="r2"></a>
 
@@ -115,6 +119,8 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 <a id="r3"></a>
 
 **R3 — 认证读取。** 调用者必须有 G1 保护。引用绑定 pool／run 和 namespace；index 缓存命中要求准确的不可变引用。检查 extent 边界及所选 frame 与 index 的一致性，认证 envelope 和请求 payload／checksum chunk，并在返回或分配 payload 前绑定 tensor dtype／shape／length。缓存 index 不得跳过 record／envelope／payload 校验。空 typed 区间仍需校验 layout。
+
+会话使用最多八条 index、8 MiB 编码元数据预算的 LRU；一个超大活动 index 会淘汰其他条目。未命中时先认证再缓存；失败不能选中无关的旧 index。同一会话的调用串行，独立会话可以并行读取。
 
 <a id="r4"></a>
 
@@ -125,7 +131,7 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 
 | 规则 | TLA+ 动作／性质 | 有意保留的抽象差异 |
 |---|---|---|
-| C3 | `WalRecovery`：Write/Fail/Scan/Truncate/RecoverSync、AcknowledgedSurvives、ReadyDurable。`CatalogTransaction`：BoundCaller、CacheMatchesPrefix、NoCachedAfterError。`CommitApplication`：Begin/Hook/Recover、AcceptedDataPresent | frame 段抽象字节；哈希／解析器和锁服务外置。实际 callback 和全部公开入口 guard 仍需实现审查。 |
+| C3 | `WalRecovery`：Write/Fail/Scan/Truncate/RecoverSync、AcknowledgedSurvives、ReadyDurable。`CatalogTransaction`：BoundCaller、CacheMatchesPrefix、NoCachedAfterError；`CatalogReplay`：CoherentReady、已确认前缀复用与 dirty cache 拒绝。`CommitApplication`：Begin/Hook/Recover、AcceptedDataPresent | frame 段抽象字节；哈希／解析器和锁服务外置。实际 callback 和全部公开入口 guard 仍需实现审查。 |
 | R1 | `PublicationPreparation`、`IncompletePublication`、`DirectoryDurability`、`ProvisionalHold`、`PublicationFinalization`：预留、回滚、目录屏障、staging、sealing | 唯一不可变名称及真实文件系统屏障；存活 writer 拥有回滚资格。 |
 | R2 | `PendingPublication`：OneCompletedFile、WriterFenced、DurableVerifiedReturn。`PublicationHandoff`：NoForgottenUnreturnedFile、CompletedHandoff。`StagingConsumption`：回执／图恢复 | 失败响应可留下效果；不同 API／请求／内容不能消费或覆盖未决输出。 |
 | R3 | `ReadAttempt`：Index/Frame/Envelope/Payload、NoUnverifiedReturn。`RangeRead`／`TypedRead`：认证区间及 layout。`NamespaceIdentity`：规范绑定 | wire／index／frame／envelope 错误分别建模；热缓存只授权准确的已认证 index，不授权 record 字节。 |
@@ -133,8 +139,8 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 
 | 规则 | 实际调用链 | 回归／反例入口 |
 |---|---|---|
-| C3 | `journal_owner::{open,append_with,recover_with}` → `journal_io` → `journal_state`、`wal_append/recovery/source/sink`、`file_adapter/primitives`；`catalog_runtime::Transaction` → `catalog_transaction::execute`、`catalog_log`；`queue_application::{arm,apply,confirm,restore,permitted}` | `tests/test_wal_recovery.py`、`test_task_recovery.py`；原生 gc 的 inode 替换、嵌套入口、捕获 unwind、dirty cache；queue_application 的 callback／部分应用；逐字节残尾／XOR 与进程退出实验 |
-| R1–R2 | `Store::finish/publish_attempt/close`、`Config::finalize_publication` → `incomplete`、`pending`、`finalization`、`holding`；`gc::consume_once` → `staging_consumption` | `tests/test_publication_preparation.py`、`test_pending_publication.py`、`test_provisional_holds.py`、`test_commit_consumption.py`、`test_packed_store.py`；原生 stream callback 回归 |
+| C3 | `journal_owner::{open,append_with,recover_with}` → `journal_io` → `journal_state`、`wal_append/recovery/source/sink`、`file_adapter/primitives`；`catalog_runtime::Transaction` → `catalog_transaction::execute`、`catalog_log`；`Store::enter_writer` → `writer_gate::{Permit::registry,Registry::append}`；`queue_application::{arm,apply,confirm,restore,permitted}` | `tests/test_wal_recovery.py`、`test_task_recovery.py`；原生 gc／writer_gate 的身份替换、捕获 unwind、dirty cache；queue_application 的 callback／部分应用；逐字节残尾／XOR 与进程退出实验 |
+| R1–R2 | `Store::finish/publish_attempt/close/prepare_directory`、`Config::finalize_publication` → `incomplete`、`pending`、`finalization`、`holding`；`gc::consume_once` → `staging_consumption` | `tests/test_publication_preparation.py`、`test_pending_publication.py`、`test_provisional_holds.py`、`test_commit_consumption.py`、`test_packed_store.py`；原生 stream callback 与目录缓存失败／身份回归 |
 | R3–R4 | `rust/store.rs` 的 Reader／read session → `record_index::Cache/Attempt`、`reference_node`、`extent_retry::run`、`bounds::frame_position/authenticated_span`、实际 read／hash | `tests/test_extent_visibility.py`、`test_read_session.py`、`test_extent_bounds.py`、`test_tensor_preflight.py`、`test_tensor_granularity.py`；TLC 冷／热缓存、区域可见性、index／frame／envelope／cache 错误、payload 损坏、重试停滞 |
 
 </details>
@@ -153,17 +159,20 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 
 <a id="g3"></a>
 
-**G3 — 回收。** C1 的历史退休持久化后，只裁剪当前队列的旧 owner。持 catalog 锁执行：
+**G3 — 回收。** C1 的历史退休持久化后，只裁剪当前队列的旧 owner。公开 store／coordinator 回收路径按序执行：
 
 ```
-发现 sealed 且不可从任何 owner 到达的 pack
-追加永久 tombstone；同步 catalog
-unlink 全部 pending 目标（包括 advisory stat 声称不存在的目标）
+持 catalog 锁发现 sealed 且无主的 pack；追加永久 tombstone 并同步
+保存准确 pending 目标集合和 catalog 身份；释放文件锁与 mutex
+unlink 本轮全部目标（包括 advisory stat 声称不存在的目标）
 同步全部受影响父目录；必要时修复并同步缺失祖先名称
-追加回收回执；同步 catalog
+重新持锁恢复同一 catalog；只为本轮已完成且仍 pending 的目标记回执
+同步回执后返回
 ```
 
 Unlink `NotFound` 是幂等缺失，不是持久删除。已经缺失的 pending 文件仍需父目录屏障。其他错误上报并保留待办。回执停止重复删除／计数，但保留永久 tombstone；迟到 retain 不得复活路径。存活 extent 保护整个 pack。离线清理要求客户端停止、无共享 catalog／queue 标记、完整接受根及路径绑定追踪，以及新的未变化检查结果。
+
+多个 collector 可以重叠执行：unlink 幂等，各自完成自己目标的父目录屏障。回执不能包含本轮快照之后加入的目标。失败后持久 pending 留给后续调用处理。底层 `LockedCatalog::collect` 兼容 API 仍持有外层锁；同一个 coordinator 自身的调用也仍然串行。
 
 <a id="g4"></a>
 
@@ -178,13 +187,13 @@ Owner 持续存在或错误反复发生时，安全性仍须成立。最终回�
 |---|---|---|
 | G1 | `Ownership`：ReaderProtection、CheckpointProtection、NoDanglingReferences。`DurableHandoff`：ReadersProtected；独立 reader／checkpoint／peer 场景 | 完整应用根由 straw 调用者建立；持有引用不等于 owner。永久持有者场景不假定释放。 |
 | G2 | `ReactivationRace`：Prepare/Verify/Recheck/Append；AuthenticatedRoot、CompleteAuthorizedClosure、NoDanglingRestore。`DependencyTraversal`：CompleteClosure | 完整认证图是下层读取边界；缓存上下文不匹配必须重新认证，owner／root 不匹配必须在任何 owner 追加前拒绝。 |
-| G3 | `GCDiscovery`、`GCBatchDeletion`、`GCParentRepair`、`GCReceipt`：发现、mark、unlink、共享父目录／祖先屏障、回执；DurableCompletion、ReceiptIsSafe、ReceiptKeepsFence | 多父目录和缺失父目录义务独立，stat 仅供参考。`OfflineRoots`／`OfflineAliases` 增加停机及路径绑定根，不授权并发清理。 |
+| G3 | `GCConcurrentDeletion`：PlanFenced、ReceiptScoped、OwnedPresent；`GCDiscovery`、`GCBatchDeletion`、`GCParentRepair`、`GCReceipt`：发现、mark、unlink、共享父目录／祖先屏障、回执；DurableCompletion、ReceiptIsSafe、ReceiptKeepsFence | 多父目录和缺失父目录义务独立，stat 仅供参考。`OfflineRoots`／`OfflineAliases` 增加停机及路径绑定根，不授权并发清理。并发模型检查安全性；重试／进展义务仍由下层 GC 模型检查。 |
 | G4 | `WriterRetirement`：register/hold/submit/finish、fence/drain/authenticate/recover/release/settle/seal/receipt；AuthenticatedRecovery、ReceiptSound、RequiredProgress。`WriterLifetime`：在途工作。`DurableHandoff`：EventuallyReclaimed | Gate 交接必须完成／取消旧远程 I/O；release 与 registry settlement 是独立崩溃点。活性需要稳定、公平调度和真实调用者重试。 |
 
 | 规则 | 实际调用链 | 回归／反例入口 |
 |---|---|---|
 | G1–G2 | `queue_roots::collect`、`queue_reader`、`queue_gc::prepare/require`；`gc::VerifiedReactivation::verify`、`check_reactivation_owners`、`retain_verified_inner`、`closure_inner` → `closure::collect`、`reference_node`、`record_index` | `tests/test_online_gc.py`、`test_queue_gc_roots.py`、`test_path_identity.py`；`tests/native.rs` 的 pool／run、source 丢失和 owner 替换竞态；TLC 旧快照、错误上下文／根、遗漏依赖 |
-| G3 | Coordinator collection → `queue_retirement`、`queue_gc_prepare`、`gc_collection::Batch::run` → `gc_mark`、`gc_batch`、`gc_io`、`directory_io`、`gc_receipt` | `tests/test_gc_batch.py`、`test_gc_receipts.py`、`test_gc_missing_parent.py`、`test_offline_aliases.py`；原生缺失文件／失败屏障／共享父目录；TLC 提前回执、丢失 tombstone、遗漏父目录 |
+| G3 | Coordinator collection → `queue_retirement`、`queue_gc_prepare`、`gc_plan::{plan_collection,Plan::execute,complete_collection}` → `gc_mark`、`gc_batch`、`gc_io`、`directory_io`、`gc_receipt` | `tests/test_gc_concurrency.py`、 `test_gc_batch.py`、`test_gc_receipts.py`、`test_gc_missing_parent.py`、`test_offline_aliases.py`；原生缺失文件／失败屏障／共享父目录；TLC 提前回执、丢失 tombstone、遗漏父目录 |
 | G4 | Store 修改 → `writer_gate_flow`、`writer_gate::Registry`；`Config::retire_writer` → `writer_retirement::execute`、`gc_writer::Retirement/Recovery`、`writer_registry::reconcile_registered`、`writer_ownership::authenticate_all` | `tests/test_writer_retirement.py`；原生 gc_writer 的损坏、recover／abandon、已登记 owner；TLC death-unlock、跳过 registry／认证、提前 release／receipt 及条件进展 |
 
 </details>
@@ -198,5 +207,7 @@ Owner 持续存在或错误反复发生时，安全性仍须成立。最终回�
 保留的模型集中于持久化、跨日志、所有权、崩溃／重试和条件进展。TLC 正例必须通过，语义负例必须违反指定性质；工具／解析错误和超时不算检出。正常路径也必须可完成，避免一律拒绝造成假安全。普通确定性 Rust 依靠编译器、Clippy 和有意义的边界测试。
 
 回归重点包括 WAL 前释放 staging、错误后复用部分状态、漏掉 reader／队列 checkpoint 根、目录同步前写回执，以及既有 owner 保护错误根。它们对应上表的真实调用点；公共 `checkpoint:*` owner 与队列 checkpoint 不能相互替代测试。按[贡献指南](../CONTRIBUTING_zh.md#checks)运行检查，报告当前输入和实际结果。
+
+`check_mutations.py` 还对实际 Rust 代码注入选定故障，要求指定运行时回归失败；编译错误、缺失测试和超时均不算检出。
 
 有限模型、具体执行回归与源码审查提供互补证据，不构成完整 Rust／Python／FFI 等价证明、无界定理或文件系统掉电认证。进程退出保留内核和存储服务；不能据此推断真实存储服务故障行为。变更规则时同步模型、调用者、环境登记和中英文正文；验证日志保存在 CI artifacts 或忽略目录中，不追加成规格正文。

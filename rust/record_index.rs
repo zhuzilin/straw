@@ -1,5 +1,6 @@
 //! Authenticated index cache and exact record-envelope selection.
 use serde_json::{Value, value::Index};
+use std::collections::VecDeque;
 
 pub trait Source {
     type File;
@@ -12,19 +13,43 @@ pub trait Source {
 }
 
 pub struct Cache {
-    last: Option<(Value, Value)>,
+    entries: VecDeque<(Value, Value, usize)>,
+    bytes: usize,
+    selected: bool,
+}
+
+const CACHE_ENTRIES: usize = 8;
+const CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+// Count serialized metadata without allocating another index-sized buffer.
+// A single oversized active index is allowed, but evicts every other entry.
+fn encoded_size(value: &Value) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, value).expect("JSON value serialization to a counter");
+    count.0
 }
 
 impl Cache {
     pub fn new() -> Self {
-        Self { last: None }
+        Self {
+            entries: VecDeque::new(),
+            bytes: 0,
+            selected: false,
+        }
     }
 
     pub fn index(&self) -> Option<&Value> {
-        match &self.last {
-            Some((_, index)) => Some(index),
-            None => None,
-        }
+        self.selected.then(|| &self.entries.front().unwrap().1)
     }
 
     pub fn load<S: Source>(
@@ -32,16 +57,28 @@ impl Cache {
         source: &mut S,
         reference: &Value,
     ) -> Result<Option<S::File>, crate::extent_retry::Failure<S::Error>> {
-        if let Some((cached, _)) = &self.last
-            && *cached == *reference
+        self.selected = false;
+        if let Some(position) = self
+            .entries
+            .iter()
+            .position(|(cached, _, _)| cached == reference)
         {
+            let entry = self.entries.remove(position).unwrap();
+            self.entries.push_front(entry);
+            self.selected = true;
             return Ok(None);
         }
-        self.last = None;
         let (file, index) = source.inspect(reference)?;
-        let cached = reference.clone();
-
-        self.last = Some((cached, index));
+        let weight = encoded_size(reference).saturating_add(encoded_size(&index));
+        while !self.entries.is_empty()
+            && (self.entries.len() >= CACHE_ENTRIES
+                || self.bytes.saturating_add(weight) > CACHE_BYTES)
+        {
+            self.bytes -= self.entries.pop_back().unwrap().2;
+        }
+        self.bytes = self.bytes.saturating_add(weight);
+        self.entries.push_front((reference.clone(), index, weight));
+        self.selected = true;
         Ok(Some(file))
     }
 }
@@ -185,7 +222,7 @@ mod tests {
         }
     }
     #[test]
-    fn cache_hit_avoids_inspect_and_failed_change_invalidates_old_index() {
+    fn failed_lookup_cannot_select_another_cached_index() {
         let mut input = source(vec![
             Ok(json!("first")),
             Err(Failure::Visibility("missing view")),
@@ -199,9 +236,25 @@ mod tests {
             Err(Failure::Visibility("missing view"))
         ));
         assert!(cache.index().is_none());
-        assert_eq!(cache.load(&mut input, &json!("a")).ok(), Some(Some(3)));
-        assert_eq!(cache.index(), Some(&json!("reread")));
-        assert_eq!(input.references, vec![json!("a"), json!("b"), json!("a")]);
+        assert_eq!(cache.load(&mut input, &json!("a")).ok(), Some(None));
+        assert_eq!(cache.index(), Some(&json!("first")));
+        assert_eq!(input.references, vec![json!("a"), json!("b")]);
+    }
+    #[test]
+    fn cache_preserves_hot_extents_and_evicts_by_count_and_bytes() {
+        let mut input = source((0..12).map(|i| Ok(json!(i))).collect());
+        let mut cache = Cache::new();
+        for i in 0..8 {
+            cache.load(&mut input, &json!(i)).ok().unwrap();
+        }
+        assert!(cache.load(&mut input, &json!(0)).ok().unwrap().is_none());
+        cache.load(&mut input, &json!(8)).ok().unwrap();
+        assert!(cache.load(&mut input, &json!(0)).ok().unwrap().is_none());
+        assert!(cache.load(&mut input, &json!(1)).ok().unwrap().is_some());
+        let mut large = source(vec![Ok(json!("x".repeat(CACHE_BYTES)))]);
+        cache.load(&mut large, &json!("large")).ok().unwrap();
+        assert!(cache.load(&mut input, &json!(0)).ok().unwrap().is_some());
+        assert_eq!(cache.entries.len(), 1);
     }
     #[test]
     fn typed_retry_returns_only_final_index_and_shared_budget() {

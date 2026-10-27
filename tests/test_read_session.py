@@ -98,7 +98,7 @@ def test_new_session_rechecks_index(tmp_path):
                 b.load(reader=reader)
 
 
-def test_only_last_extent_is_cached(tmp_path):
+def test_alternating_extents_reuse_authenticated_indexes_until_eviction(tmp_path):
     with make_store(tmp_path) as store:
         a, b = tensors(store)
         other, _ = tensors(store, "other")
@@ -106,6 +106,14 @@ def test_only_last_extent_is_cached(tmp_path):
             a.load(reader=reader)
             corrupt_index(b)
             other.load(reader=reader)
+            assert torch.equal(b.load(reader=reader), torch.ones(3))
+            # A fresh session still authenticates the on-disk index. The cache
+            # authorizes only the previously authenticated exact descriptor.
+            with store.read_session() as fresh, pytest.raises(CorruptData, match="index checksum"):
+                b.load(reader=fresh)
+            for i in range(8):
+                newer, _ = tensors(store, f"newer-{i}")
+                newer.load(reader=reader)
             with pytest.raises(CorruptData, match="index checksum"):
                 b.load(reader=reader)
 
