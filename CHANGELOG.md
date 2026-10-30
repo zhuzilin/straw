@@ -2,6 +2,40 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.7
+
+### Batched reads and validation
+
+- Add `TensorRef.load_many(..., reader=reader, workers=4)` for caller-bounded,
+  ordered tensor batches. Native workers reuse extent handles and coalesce nearby
+  reads in bounded windows (1 MiB by default, at most 8 MiB per worker), avoiding
+  read-ahead across gaps larger than 4 KiB. Each result has independent writable
+  storage; typed layout, selected frames and touched checksum chunks remain
+  authenticated. Failed attempts discard handles and windows before retrying.
+- Read tensor member envelopes through one native call and reuse canonical path
+  information within a publication, reducing Python/native transitions and
+  repeated shared-filesystem path resolution.
+- Add `store.validation_scope(coordinator)` to reuse immutable dependency proofs
+  during one local publication/queue handoff. New roots still check descriptors
+  and task/attempt identity; catalog changes still check ownership, namespace
+  and tombstones under lock. Scopes are thread-local, do not pin data, and close
+  on exit or participating errors. Explicit validation and payload reads retain
+  their normal checks.
+- Sample the coordinator lease clock after acquiring its call lock, so queued
+  calls do not submit stale timestamps. Log slow calls with separate lock-wait
+  and operation times.
+
+### Compatibility and limits
+
+- Existing Python call signatures and stored WAL/packed-record formats remain
+  compatible; the new batch and scope APIs require 0.1.7. Keep input owners alive
+  throughout reads and validation scopes. Callers must bound the total payload
+  bytes returned by a batch; the read-ahead limit only bounds worker scratch.
+- These changes reduce small-read calls and repeated immutable-graph work.
+  Throughput depends on request locality, cache state and storage; they do not
+  establish a shared-filesystem bandwidth guarantee or change GC durability
+  requirements.
+
 ## 0.1.6
 
 - Reuse confirmed writer-registry state and index operation lookup; rebuild after uncertain outcomes. Cache only successfully synchronized writer directories with pinned inode identity. Keep existing publication WAL barriers and wire formats.

@@ -193,6 +193,22 @@ b.submit_tasks("b-1", [TaskSpec("task-b", input_ref=dependency)])
 
 ## 批量读取会话
 
+`TensorRef.load_many(refs, reader=reader, workers=4)` 按原顺序读取调用方限定的批次。
+调用前应限制请求载荷的总字节数；返回张量各自拥有可写存储。
+Native worker 按 pack/extent/ordinal 排序，复用 extent 句柄，以每个 worker
+最多 1 MiB 的窗口合并邻近读取，不预读超过 4 KiB 的间隙。
+每个选中 frame、typed layout 和触及的 checksum chunk 仍逐一检查。
+读取失败后，先丢弃句柄和窗口，再执行原有有限可见性重试；批次结束也丢弃窗口。
+底层 `reader.read_tensor_ranges(..., read_ahead_bytes=0)` 可关闭预读用于对照，
+该参数最大为每个 worker 8 MiB。
+
+单次发布／队列交接可用 `with store.validation_scope(coordinator):`，
+在当前线程的参与操作之间复用成功的不可变依赖校验证据。
+新根仍检查描述符和 task/attempt；catalog 转移仍在锁内检查 namespace 身份、
+所有权授权和 tombstone。Scope 不保留数据所有权，不跨存储身份，退出时关闭，
+任意参与操作失败立即使其失效。整个操作期间仍须保持输入 owner。
+显式 `store.validate` 和后续操作仍重新校验；scope 不缓存载荷读取结果。
+
 连续读取不可变 publication 时，可共用一个 `with store.read_session() as reader:`。Reader 提供 `validate`、`manifest`、`read`、`read_record`、`envelope` 和带校验的张量读取。将它传给 `TensorRef.from_record_set_many(store, publication, reader=reader)` 与 `tensor.load(reader=reader)`，可避免重复解析同一 extent 的索引。
 
 Rust reader 使用最多八条已认证索引的 LRU，以完整 extent 描述符区分身份，编码元数据预算为 8 MiB；一个超大活动 index 会淘汰其他条目。每次 manifest/record 读取仍校验 frame 和载荷；张量读取仍校验触及的 chunk。每次 `validate` 都重新检查逻辑描述符与 task/attempt 权限。缓存未命中或开启新会话后重新认证索引。同一会话的调用串行，并行读取应使用独立会话。整个读取过程必须由持久 owner 或 `store.pin` 保护：读取会话本身不保留存储所有权。退出上下文会关闭会话，fork 后继承的会话拒绝所有操作。

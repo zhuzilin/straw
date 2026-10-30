@@ -3,7 +3,7 @@
 use crate::coordinator::Coordinator;
 use crate::journal::Journal;
 use crate::payload::{InputRecord, Payload};
-use crate::store::{Config, Reader, Store};
+use crate::store::{Config, GraphProof, Reader, Store};
 use crate::{Error, Fault, Result};
 use pyo3::{
     buffer::PyBuffer,
@@ -14,7 +14,87 @@ use pyo3::{
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+
+struct ValidationScopeState {
+    graph: Mutex<Option<GraphProof>>,
+    closed: AtomicBool,
+}
+impl ValidationScopeState {
+    fn invalidate(&self) {
+        self.closed.store(true, Ordering::Release);
+        if let Ok(mut graph) = self.graph.try_lock() {
+            *graph = None;
+        }
+    }
+}
+#[pyclass]
+struct NativeValidationScope {
+    state: Arc<ValidationScopeState>,
+    pid: u32,
+}
+impl NativeValidationScope {
+    fn checked(&self) -> PyResult<Arc<ValidationScopeState>> {
+        if self.pid != std::process::id() {
+            return Err(PyRuntimeError::new_err(
+                "Validation scope cannot be reused after fork",
+            ));
+        }
+        Ok(self.state.clone())
+    }
+}
+#[pymethods]
+impl NativeValidationScope {
+    fn close(&self) -> PyResult<()> {
+        self.checked()?.invalidate();
+        Ok(())
+    }
+    fn stats(&self) -> PyResult<String> {
+        let state = self.checked()?;
+        let guard = state
+            .graph
+            .try_lock()
+            .map_err(|_| PyRuntimeError::new_err("Validation scope is busy"))?;
+        let graph = guard
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("Validation scope is closed"))?;
+        Ok(json!({"nodes":graph.node_count(),"checked_nodes":graph.checked_nodes,"reused_nodes":graph.reused_nodes,"published_nodes":graph.published_nodes}).to_string())
+    }
+}
+fn scoped<T>(
+    state: Option<&Arc<ValidationScopeState>>,
+    call: impl FnOnce(Option<&mut GraphProof>) -> Result<T>,
+) -> Result<T> {
+    let Some(state) = state else {
+        return call(None);
+    };
+    if state.closed.load(Ordering::Acquire) {
+        return Err(Error::new("RuntimeError", "Validation scope is closed"));
+    }
+    let mut guard = match state.graph.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            state.invalidate();
+            return Err(Error::new(
+                "RuntimeError",
+                "Validation scope is already in use",
+            ));
+        }
+    };
+    if state.closed.load(Ordering::Acquire) {
+        *guard = None;
+        return Err(Error::new("RuntimeError", "Validation scope is closed"));
+    }
+    let result = call(Some(guard.as_mut().ok_or_else(|| {
+        Error::new("RuntimeError", "Validation scope is closed")
+    })?));
+    if result.is_err() || state.closed.load(Ordering::Acquire) {
+        state.closed.store(true, Ordering::Release);
+        *guard = None;
+    }
+    result
+}
 
 fn parse(text: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
@@ -227,6 +307,28 @@ impl NativeReader {
             Ok(serde_json::to_string(&r.envelope(&parse(reference)?)?)?)
         })
     }
+    #[pyo3(signature = (reference, codec=None))]
+    fn member_envelopes(
+        &self,
+        py: Python<'_>,
+        reference: &str,
+        codec: Option<String>,
+    ) -> PyResult<String> {
+        self.with_reader(py, |reader| {
+            let manifest = reader.manifest(&parse(reference)?)?;
+            let mut result = vec![];
+            for (ordinal, member) in crate::array(&manifest, "records")?.iter().enumerate() {
+                let envelope = reader.envelope(member)?;
+                if codec
+                    .as_ref()
+                    .is_none_or(|codec| envelope["codec"] == *codec)
+                {
+                    result.push(json!({"ordinal":ordinal,"record":member,"envelope":envelope}));
+                }
+            }
+            Ok(serde_json::to_string(&result)?)
+        })
+    }
     fn read<'py>(
         &self,
         py: Python<'py>,
@@ -260,6 +362,32 @@ impl NativeReader {
             PyBytes::new(py, &data),
             checked,
         ))
+    }
+    #[pyo3(signature = (requests, workers=4, expected=None, read_ahead_bytes=1048576))]
+    fn read_tensor_ranges<'py>(
+        &self,
+        py: Python<'py>,
+        requests: &str,
+        workers: usize,
+        expected: Option<&str>,
+        read_ahead_bytes: usize,
+    ) -> PyResult<(String, Vec<Bound<'py, PyBytes>>, u64)> {
+        let values = self.with_reader(py, |reader| {
+            let requests: Vec<(Value, u64, u64)> = serde_json::from_str(requests)?;
+            let expected: Vec<Value> = expected
+                .map(serde_json::from_str)
+                .transpose()?
+                .unwrap_or_default();
+            reader.read_tensor_ranges_checked(&requests, &expected, workers, read_ahead_bytes)
+        })?;
+        let checked = values.iter().map(|(_, _, checked)| checked).sum();
+        let envelopes: Vec<_> = values.iter().map(|(envelope, _, _)| envelope).collect();
+        let metadata = serde_json::to_string(&envelopes).unwrap();
+        let payloads = values
+            .iter()
+            .map(|(_, data, _)| PyBytes::new(py, data))
+            .collect();
+        Ok((metadata, payloads, checked))
     }
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         self.check_process()?;
@@ -327,6 +455,15 @@ impl NativeStore {
             pid: std::process::id(),
         }
     }
+    fn validation_scope(&self) -> NativeValidationScope {
+        NativeValidationScope {
+            state: Arc::new(ValidationScopeState {
+                graph: Mutex::new(Some(GraphProof::new(&self.config))),
+                closed: AtomicBool::new(false),
+            }),
+            pid: std::process::id(),
+        }
+    }
     fn write(
         &self,
         py: Python<'_>,
@@ -346,6 +483,8 @@ impl NativeStore {
             )?)?)
         })
     }
+    #[pyo3(signature = (groups, metadata, payloads, submission_id, fault, validation_scope=None))]
+    #[allow(clippy::too_many_arguments)] // Preserve existing FFI arguments plus the optional scope.
     fn publish(
         &self,
         py: Python<'_>,
@@ -354,19 +493,35 @@ impl NativeStore {
         payloads: Vec<Py<PyAny>>,
         submission_id: &str,
         fault: Py<PyAny>,
+        validation_scope: Option<PyRef<'_, NativeValidationScope>>,
     ) -> PyResult<String> {
         self.check_writer_process()?;
-        let records = records(py, &self.config, metadata, payloads)?;
-        let groups = parse(groups).map_err(|e| exception(py, e))?;
-        run(py, &fault, |fault| {
-            let mut store = self.writer_access()?;
-            Ok(serde_json::to_string(&store.publish_inputs(
-                &groups,
-                records,
-                submission_id,
-                fault,
-            )?)?)
-        })
+        let scope = validation_scope
+            .as_ref()
+            .map(|scope| scope.checked())
+            .transpose()?;
+        let result = (|| {
+            let records = records(py, &self.config, metadata, payloads)?;
+            let groups = parse(groups).map_err(|e| exception(py, e))?;
+            run(py, &fault, |fault| {
+                scoped(scope.as_ref(), |graph| {
+                    let mut store = self.writer_access()?;
+                    Ok(serde_json::to_string(&store.publish_inputs_with_graph(
+                        &groups,
+                        records,
+                        submission_id,
+                        fault,
+                        graph,
+                    )?)?)
+                })
+            })
+        })();
+        if result.is_err()
+            && let Some(scope) = scope
+        {
+            scope.invalidate();
+        }
+        result
     }
     fn record_set(
         &self,
@@ -617,6 +772,7 @@ impl NativeCoordinator {
             owner: Mutex::new(owner),
         })
     }
+    #[pyo3(signature = (method, args, now, fault, validation_scope=None))]
     fn call(
         &self,
         py: Python<'_>,
@@ -624,12 +780,31 @@ impl NativeCoordinator {
         args: &str,
         now: f64,
         fault: Py<PyAny>,
+        validation_scope: Option<PyRef<'_, NativeValidationScope>>,
     ) -> PyResult<String> {
-        let args = parse(args).map_err(|e| exception(py, e))?;
-        run(py, &fault, |f| {
-            let result = self.owner.lock().unwrap().call(method, &args, now, f)?;
-            Ok(serde_json::to_string(&result)?)
-        })
+        let scope = validation_scope
+            .as_ref()
+            .map(|scope| scope.checked())
+            .transpose()?;
+        let result = (|| {
+            let args = parse(args).map_err(|e| exception(py, e))?;
+            run(py, &fault, |f| {
+                scoped(scope.as_ref(), |graph| {
+                    let result = self
+                        .owner
+                        .lock()
+                        .unwrap()
+                        .call_with_graph(method, &args, now, f, graph)?;
+                    Ok(serde_json::to_string(&result)?)
+                })
+            })
+        })();
+        if result.is_err()
+            && let Some(scope) = scope
+        {
+            scope.invalidate();
+        }
+        result
     }
     fn diagnostics(&self, py: Python<'_>) -> String {
         py.allow_threads(||{let q=self.owner.lock().unwrap();json!({"path":q.journal.path,"sequence":q.journal.sequence,"poisoned":q.journal.poisoned,"closed":q.journal.closed(),"recovery_seconds":q.recovery_seconds}).to_string()})
@@ -708,6 +883,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeStore>()?;
     m.add_class::<NativeReader>()?;
     m.add_class::<NativeCoordinator>()?;
+    m.add_class::<NativeValidationScope>()?;
     m.add_class::<NativeJournal>()?;
     m.add_function(wrap_pyfunction!(filesystem_path, m)?)?;
     m.add_function(wrap_pyfunction!(read_committed, m)?)?;

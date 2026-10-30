@@ -6,6 +6,7 @@ Rust owns validation, framing, hashes, durable publication and checked reads.
 
 import contextlib
 import json
+import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -76,6 +77,32 @@ class _ReadSession(_RecordReader):
     def envelope(self, ref):
         return json.loads(self._native.envelope(encode(asdict(ref)).decode()))
 
+    def member_envelopes(self, ref, *, codec=None):
+        """Read authenticated member descriptors through one native boundary."""
+        return json.loads(self._native.member_envelopes(encode(asdict(ref)).decode(), codec))
+
+    def read_tensor_ranges(self, requests, *, workers=4, expected=None, read_ahead_bytes=1024 * 1024):
+        """Read an ordered batch with up to 8 MiB of read-ahead per worker.
+
+        Zero read-ahead selects ordinary scalar reads for comparison. Typed
+        descriptors, when supplied, are checked before payload allocation.
+        """
+        started = time.monotonic()
+        envelopes, payloads, checked = self._native.read_tensor_ranges(
+            encode([(asdict(ref), start, stop) for ref, start, stop in requests]).decode(),
+            workers,
+            None if expected is None else encode(expected).decode(),
+            read_ahead_bytes,
+        )
+        emit(
+            "read_ranges",
+            root=self.backend.root,
+            size=sum(map(len, payloads)),
+            checked_bytes=checked,
+            seconds=time.monotonic() - started,
+        )
+        return list(zip(json.loads(envelopes), map(bytearray, payloads), strict=True))
+
     def close(self):
         self._native.close()
 
@@ -121,6 +148,45 @@ class SharedFilesystemStore(_RecordReader):
             )
         )
         self._native = NativeStore(self._config)
+        self._validation_context = threading.local()
+
+    def _active_validation_scope(self):
+        return getattr(self._validation_context, "scope", None)
+
+    def _invalidate_validation_scope(self):
+        scope = self._active_validation_scope()
+        if scope is not None:
+            scope.close()
+
+    @contextlib.contextmanager
+    def validation_scope(self, coordinator):
+        """Reuse immutable graph checks only across one local ready transition.
+
+        Publications remain staged or accepted while this scope is live. Explicit
+        reads/validate calls keep their normal checks. A failed operation closes
+        the scope immediately; exiting also destroys all dependency proofs.
+        """
+        if coordinator.store is not self:
+            raise ValueError("Validation scope requires the coordinator's own store")
+        if (
+            self._active_validation_scope() is not None
+            or getattr(coordinator._validation_context, "scope", None) is not None
+        ):
+            raise RuntimeError("Nested validation scopes are not supported")
+        scope = self._native.validation_scope()
+        self._validation_context.scope = coordinator._validation_context.scope = scope
+        try:
+            yield scope
+        finally:
+            self._validation_context.scope = coordinator._validation_context.scope = None
+            scope.close()
+
+    def validate(self, ref, *, task_id=None, attempt_id=None):
+        try:
+            return super().validate(ref, task_id=task_id, attempt_id=attempt_id)
+        except BaseException:
+            self._invalidate_validation_scope()
+            raise
 
     def _fault(self, phase):
         self.backend.fault(phase)
@@ -250,6 +316,13 @@ class SharedFilesystemStore(_RecordReader):
         )[0]
 
     def publish_many(self, publications, *, submission_id):
+        try:
+            return self._publish_many(publications, submission_id=submission_id)
+        except BaseException:
+            self._invalidate_validation_scope()
+            raise
+
+    def _publish_many(self, publications, *, submission_id):
         records, groups = [], []
         for publication in publications:
             start = len(records)
@@ -271,6 +344,7 @@ class SharedFilesystemStore(_RecordReader):
                     payloads,
                     submission_id,
                     self._fault,
+                    self._active_validation_scope(),
                 )
             )
         )

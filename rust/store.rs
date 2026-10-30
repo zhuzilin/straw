@@ -5,7 +5,7 @@ use crate::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -42,6 +42,7 @@ pub struct Config {
 }
 type PublicationDescription = (String, String, Value, PathBuf, usize);
 type CompletedDescription = (String, String, Vec<Value>);
+type TensorRead = (Value, Vec<u8>, u64);
 // Final catalog path, private write path and the pre-attempt file length.
 type IncompleteDescription = ((String, PathBuf), u64);
 
@@ -66,6 +67,128 @@ pub struct Store {
 pub struct Reader {
     config: Config,
     last: crate::record_index::Cache,
+}
+/// Successful metadata validation for one explicit caller operation. This is
+/// never stored on a Config/Reader/Coordinator and contains no payload buffers.
+pub(crate) struct GraphProof {
+    root: PathBuf,
+    run_id: String,
+    codecs: HashSet<String>,
+    max_record: u64,
+    nodes: HashMap<String, GraphNode>,
+    path_identities: HashMap<String, String>,
+    namespace: NamespaceState,
+    pub(crate) checked_nodes: usize,
+    pub(crate) reused_nodes: usize,
+    pub(crate) published_nodes: usize,
+}
+struct GraphNode {
+    members: Vec<String>,
+    dependencies: Vec<String>,
+    paths: BTreeSet<String>,
+    contents: Value,
+}
+#[cfg(test)]
+#[path = "graph_proof_tests.rs"]
+mod graph_proof_tests;
+impl GraphProof {
+    pub(crate) fn new(config: &Config) -> Self {
+        Self {
+            root: config.root.clone(),
+            run_id: config.run_id.clone(),
+            codecs: config.codecs.clone(),
+            max_record: config.max_record,
+            nodes: HashMap::new(),
+            path_identities: HashMap::new(),
+            namespace: crate::catalog_namespace::Adapter::new(namespace_source(
+                config.root.clone(),
+            )),
+            checked_nodes: 0,
+            reused_nodes: 0,
+            published_nodes: 0,
+        }
+    }
+    pub(crate) fn check_storage(&self, config: &Config) -> Result<()> {
+        if self.root != config.root
+            || self.run_id != config.run_id
+            || self.codecs != config.codecs
+            || self.max_record != config.max_record
+        {
+            return fail(
+                "InvalidReference",
+                "Validation graph belongs to different storage",
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn validated(&self) -> HashSet<String> {
+        self.nodes.keys().cloned().collect()
+    }
+    #[cfg(feature = "python")]
+    pub(crate) fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+    fn register_paths(&mut self, paths: &BTreeSet<String>) -> Result<()> {
+        for path in paths {
+            let identity = self.namespace.identity(path)?;
+            if self
+                .path_identities
+                .get(path)
+                .is_some_and(|prior| *prior != identity)
+            {
+                return fail(
+                    "UnsafeRecovery",
+                    "Validation graph namespace identity changed",
+                );
+            }
+            self.path_identities.insert(path.clone(), identity);
+        }
+        Ok(())
+    }
+    pub(crate) fn path_identity(&self, path: &str) -> Option<&str> {
+        self.path_identities.get(path).map(String::as_str)
+    }
+    pub(crate) fn manifest(&self, config: &Config, reference: &Value) -> Result<Option<Value>> {
+        if self.check_storage(config).is_err() {
+            return Ok(None);
+        }
+        Ok(self
+            .nodes
+            .get(&digest(reference)?)
+            .map(|node| node.contents.clone()))
+    }
+    /// Require the complete root identity, storage identity, and a complete
+    /// successful graph. Any uncovered node makes the entire root fall back.
+    pub(crate) fn project(
+        &self,
+        config: &Config,
+        reference: &Value,
+        staged: bool,
+    ) -> Result<Option<(BTreeSet<String>, HashSet<String>)>> {
+        if self.check_storage(config).is_err() {
+            return Ok(None);
+        }
+        let key = digest(reference)?;
+        let mut pending = vec![key.as_str()];
+        let mut visited = HashSet::new();
+        let mut paths = BTreeSet::new();
+        let mut owners = HashSet::new();
+        while let Some(key) = pending.pop() {
+            if !visited.insert(key) {
+                continue;
+            }
+            let Some(node) = self.nodes.get(key) else {
+                return Ok(None);
+            };
+            paths.extend(node.paths.iter().cloned());
+            if staged {
+                owners.insert(format!("staged:{key}"));
+                owners.extend(node.members.iter().map(|m| format!("staged:{m}")));
+            }
+            pending.extend(node.dependencies.iter().map(String::as_str));
+        }
+        Ok(Some((paths, owners)))
+    }
 }
 impl Reader {
     pub fn new(config: Config) -> Self {
@@ -151,6 +274,193 @@ impl Reader {
             let (f, env) = self.frame(r)?;
             Config::read_tensor_frame(f, env, start, stop, expected)
         })
+    }
+    pub fn read_tensor_ranges(
+        &mut self,
+        requests: &[(Value, u64, u64)],
+        workers: usize,
+    ) -> Result<Vec<(Value, Vec<u8>, u64)>> {
+        self.read_tensor_ranges_checked(requests, &[], workers, 1024 * 1024)
+    }
+    pub fn read_tensor_ranges_checked(
+        &mut self,
+        requests: &[(Value, u64, u64)],
+        expected: &[Value],
+        workers: usize,
+        read_ahead_bytes: usize,
+    ) -> Result<Vec<(Value, Vec<u8>, u64)>> {
+        if !(1..=32).contains(&workers) {
+            return fail("ValueError", "Tensor read workers must be between 1 and 32");
+        }
+        if !expected.is_empty() && expected.len() != requests.len() {
+            return fail(
+                "ValueError",
+                "Expected one typed descriptor per tensor read",
+            );
+        }
+        if read_ahead_bytes > 8 * 1024 * 1024 {
+            return fail(
+                "ValueError",
+                "Tensor read ahead must be at most 8 MiB per worker",
+            );
+        }
+        if requests.is_empty() {
+            return Ok(vec![]);
+        }
+        // Records are published in ordinal order within each immutable extent.
+        // Keep adjacent frames together and restore the caller's order below.
+        let mut order: Vec<_> = requests.iter().enumerate().collect();
+        order.sort_by(|(_, a), (_, b)| {
+            a.0["segment"]["path"]
+                .as_str()
+                .cmp(&b.0["segment"]["path"].as_str())
+                .then(number(&a.0["segment"], "offset").cmp(&number(&b.0["segment"], "offset")))
+                .then(number(&a.0, "ordinal").cmp(&number(&b.0, "ordinal")))
+        });
+        let read_ahead_bytes = read_ahead_bytes.min(self.config.max_buffer as usize);
+        if workers == 1 || requests.len() == 1 {
+            let mut result: Vec<_> = std::iter::repeat_with(|| None)
+                .take(requests.len())
+                .collect();
+            for (index, value) in self.read_tensor_batch(&order, expected, read_ahead_bytes)? {
+                result[index] = Some(value);
+            }
+            return Ok(result.into_iter().map(Option::unwrap).collect());
+        }
+        let chunk_size = order.len().div_ceil(workers);
+        let parts = std::thread::scope(|scope| {
+            let mut handles = vec![];
+            for chunk in order.chunks(chunk_size) {
+                let config = self.config.clone();
+                handles.push(scope.spawn(move || {
+                    let mut reader = Reader::new(config);
+                    reader.read_tensor_batch(chunk, expected, read_ahead_bytes)
+                }));
+            }
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .map_err(|_| Error::new("RuntimeError", "Tensor reader worker panicked"))?
+                })
+                .collect::<Result<Vec<_>>>()
+        })?;
+        let mut result: Vec<_> = std::iter::repeat_with(|| None)
+            .take(requests.len())
+            .collect();
+        for part in parts {
+            for (index, value) in part {
+                result[index] = Some(value);
+            }
+        }
+        Ok(result.into_iter().map(Option::unwrap).collect())
+    }
+    fn read_tensor_batch(
+        &mut self,
+        requests: &[(usize, &(Value, u64, u64))],
+        expected: &[Value],
+        capacity: usize,
+    ) -> Result<Vec<(usize, TensorRead)>> {
+        // File views never survive this batch. A failed attempt drops its view
+        // before retry_extent waits, sharing the ordinary finite retry budget.
+        let mut window: Option<(Value, crate::read_window::Window<File>)> = None;
+        requests
+            .iter()
+            .enumerate()
+            .map(|(batch_index, (index, (reference, start, stop)))| {
+                let expected = expected.get(*index);
+                if capacity == 0 {
+                    return self
+                        .read_tensor_range_checked(reference, *start, *stop, expected)
+                        .map(|value| (*index, value));
+                }
+                let value = retry_extent(&reference["segment"], || {
+                    let attempt = (|| {
+                        let opened = self.index_once(&reference["segment"])?;
+                        let (env, encoded, position) =
+                            Config::frame_description(reference, self.last.index().unwrap())?;
+                        // Typed layout is checked against authenticated metadata
+                        // before allocating even the bounded read-ahead scratch.
+                        let (chunk, checksums) = Config::tensor_checks(&env, expected)?;
+                        let segment = &reference["segment"];
+                        if opened.is_some()
+                            || window.as_ref().is_none_or(|(cached, _)| cached != segment)
+                        {
+                            let file = match opened {
+                                Some(file) => file,
+                                None => self.config.open(field(segment, "path")?)?,
+                            };
+                            let end = number(segment, "offset")
+                                .checked_add(number(segment, "size"))
+                                .ok_or_else(|| Error::new("CorruptData", "Extent end overflow"))?;
+                            window = Some((
+                                segment.clone(),
+                                crate::read_window::Window::new(file, capacity, end),
+                            ));
+                        }
+                        let input = &mut window.as_mut().unwrap().1;
+                        let (_, payload_end) = crate::bounds::authenticated_span(
+                            number(&env, "length"),
+                            *start,
+                            *stop,
+                            chunk,
+                        )
+                        .ok_or_else(|| {
+                            Error::new("InvalidReference", "Invalid checksummed range")
+                        })?;
+                        let frame_end = position + 12 + encoded.len() as u64;
+                        let mut through = frame_end + payload_end;
+                        if !input.covers(position, through) {
+                            // Only bridge small gaps between requested full tensor
+                            // frames. Never read a fixed window into unrelated R3
+                            // tensors merely because they share the same pack.
+                            if *start == 0 {
+                                for (_, (next, next_start, next_stop)) in
+                                    &requests[batch_index + 1..]
+                                {
+                                    if next["segment"] != *segment || *next_start != 0 {
+                                        break;
+                                    }
+                                    let (next_env, next_encoded, next_position) =
+                                        Config::frame_description(
+                                            next,
+                                            self.last.index().unwrap(),
+                                        )?;
+                                    if *next_stop != number(&next_env, "length") {
+                                        break;
+                                    }
+                                    let next_end =
+                                        next_position + 12 + next_encoded.len() as u64 + *next_stop;
+                                    if next_position.saturating_sub(through) > 4096
+                                        || next_end.saturating_sub(position) > capacity as u64
+                                    {
+                                        break;
+                                    }
+                                    through = through.max(next_end);
+                                }
+                            } else {
+                                // A partial read may begin far into a huge tensor.
+                                // Buffer its header only; payload seeks read exactly
+                                // the authenticated chunks through the ordinary path.
+                                through = frame_end;
+                            }
+                            input.prefetch_through(through);
+                        }
+                        Config::check_frame(input, &env, &encoded, position)?;
+                        let (data, checked) = Config::read_frame_range(
+                            input, &env, *start, *stop, chunk, &checksums,
+                        )?;
+                        Ok((env, data, checked))
+                    })();
+                    if attempt.is_err() {
+                        window = None;
+                    }
+                    attempt
+                })?;
+                Ok((*index, value))
+            })
+            .collect()
     }
 }
 impl Config {
@@ -267,11 +577,19 @@ impl Config {
     }
 
     pub fn stage(&self, refs: &[Value], fault: &mut Fault<'_>) -> Result<()> {
+        self.stage_with_graph(refs, fault, None)
+    }
+    fn stage_with_graph(
+        &self,
+        refs: &[Value],
+        fault: &mut Fault<'_>,
+        graph: Option<&GraphProof>,
+    ) -> Result<()> {
         let roots = refs
             .iter()
             .map(|r| Ok((crate::gc::Catalog::staged(r)?, vec![r.clone()])))
             .collect::<Result<Vec<_>>>()?;
-        self.catalog(|c| c.retain_many(self, &roots, fault))?;
+        self.catalog(|c| c.retain_many_with_graph(self, &roots, graph, fault))?;
         Ok(())
     }
     fn finalize_publication(
@@ -280,11 +598,20 @@ impl Config {
         segment: &Value,
         fault: &mut Fault<'_>,
     ) -> Result<()> {
+        self.finalize_publication_with_graph(roots, segment, fault, None)
+    }
+    fn finalize_publication_with_graph(
+        &self,
+        roots: &[Value],
+        segment: &Value,
+        fault: &mut Fault<'_>,
+        graph: Option<&GraphProof>,
+    ) -> Result<()> {
         use crate::finalization::{self, Effect};
         let mut state = finalization::start(self.target == 0);
         while let Some(effect) = finalization::next(&state) {
             let outcome = match effect {
-                Effect::Stage => self.stage(roots, fault),
+                Effect::Stage => self.stage_with_graph(roots, fault, graph),
                 Effect::Seal => (|| {
                     fault("before_publication_seal")?;
                     self.catalog(|c| c.pack(self, field(segment, "path")?, true, fault))?;
@@ -546,6 +873,15 @@ impl Config {
         index: &Value,
         opened: Option<File>,
     ) -> Result<(File, Value)> {
+        let (env, encoded, position) = Self::frame_description(r, index)?;
+        let mut f = match opened {
+            Some(file) => file,
+            None => self.open(field(&r["segment"], "path")?)?,
+        };
+        Self::check_frame(&mut f, &env, &encoded, position)?;
+        Ok((f, env))
+    }
+    fn frame_description(r: &Value, index: &Value) -> Result<(Value, Vec<u8>, u64)> {
         let segment = &r["segment"];
         let entry = crate::record_index::member(index, r).map_err(index_selection_error)?;
         let env = entry["envelope"].clone();
@@ -558,21 +894,25 @@ impl Config {
             number(&env, "length"),
         )
         .ok_or_else(|| Error::new("CorruptData", "Record frame outside extent"))?;
-        let mut f = match opened {
-            Some(file) => file,
-            None => self.open(field(segment, "path")?)?,
-        };
+        Ok((env, encoded, position))
+    }
+    fn check_frame(
+        f: &mut (impl Read + Seek),
+        env: &Value,
+        encoded: &[u8],
+        position: u64,
+    ) -> Result<()> {
         f.seek(SeekFrom::Start(position))?;
-        let frame = visible_exact(&mut f, 12)?;
+        let frame = visible_exact(f, 12)?;
         let meta = u32::from_le_bytes(frame[..4].try_into().unwrap()) as usize;
         let size = u64::from_le_bytes(frame[4..].try_into().unwrap());
         if meta != encoded.len()
-            || size != number(&env, "length")
-            || visible_exact(&mut f, meta)? != encoded
+            || size != number(env, "length")
+            || visible_exact(f, meta)? != encoded
         {
             return fail(EXTENT_VISIBILITY, "Record envelope differs from index");
         }
-        Ok((f, env))
+        Ok(())
     }
     pub fn read_range(
         &self,
@@ -621,12 +961,17 @@ impl Config {
         })
     }
     fn read_tensor_frame(
-        f: File,
+        f: impl Read + Seek,
         env: Value,
         start: u64,
         stop: u64,
         expected: Option<&Value>,
     ) -> Result<(Value, Vec<u8>, u64)> {
+        let (chunk, checksums) = Self::tensor_checks(&env, expected)?;
+        let (data, checked) = Self::read_frame_range(f, &env, start, stop, chunk, &checksums)?;
+        Ok((env, data, checked))
+    }
+    fn tensor_checks(env: &Value, expected: Option<&Value>) -> Result<(u64, Vec<String>)> {
         if env["codec"] != "tensor.v1" {
             return fail("UnsupportedSchema", "Expected tensor.v1 record");
         }
@@ -667,11 +1012,10 @@ impl Config {
                     .ok_or_else(|| Error::new("CorruptData", "Invalid tensor chunk checksum"))
             })
             .collect::<Result<_>>()?;
-        let (data, checked) = Self::read_frame_range(f, &env, start, stop, chunk, &checksums)?;
-        Ok((env, data, checked))
+        Ok((chunk, checksums))
     }
     fn read_frame_range(
-        mut f: File,
+        mut f: impl Read + Seek,
         env: &Value,
         start: u64,
         stop: u64,
@@ -816,13 +1160,210 @@ impl Reader {
         task: Option<&str>,
         attempt: Option<&str>,
     ) -> Result<Vec<Value>> {
-        let mut records = crate::record_manifest::Adapter::new(self);
-        let mut source = crate::reference_node::Adapter::new(&mut records, ValidationDigest);
-        crate::reference_validation::validate(&mut source, &mut ValidationDigest, r, task, attempt)
-            .map_err(|error| match error {
-                crate::reference_validation::Error::Read(error) => validation_error(error),
-                crate::reference_validation::Error::Digest(error) => error,
-            })
+        self.validate_scoped(r, task, attempt, &mut HashSet::new())
+    }
+    /// Reuse dependency validation only within one owning operation. Roots are
+    /// always checked, including their caller-specific task/attempt constraints.
+    /// Callers must retain dependencies for the operation and drop `seen` before
+    /// returning; it is deliberately not a persistent validation cache.
+    pub fn validate_scoped(
+        &mut self,
+        r: &Value,
+        task: Option<&str>,
+        attempt: Option<&str>,
+        seen: &mut HashSet<String>,
+    ) -> Result<Vec<Value>> {
+        self.validate_operation(r, task, attempt, seen, None)
+    }
+    pub(crate) fn validate_with_graph(
+        &mut self,
+        r: &Value,
+        task: Option<&str>,
+        attempt: Option<&str>,
+        seen: &mut HashSet<String>,
+        graph: &mut GraphProof,
+    ) -> Result<Vec<Value>> {
+        if graph.check_storage(&self.config).is_err() {
+            seen.clear();
+            graph.nodes.clear();
+            self.last = crate::record_index::Cache::new();
+            return fail(
+                "InvalidReference",
+                "Validation graph belongs to different storage",
+            );
+        }
+        self.validate_operation(r, task, attempt, seen, Some(graph))
+    }
+    fn validate_operation(
+        &mut self,
+        r: &Value,
+        task: Option<&str>,
+        attempt: Option<&str>,
+        seen: &mut HashSet<String>,
+        mut graph: Option<&mut GraphProof>,
+    ) -> Result<Vec<Value>> {
+        let result = self.validate_inner(
+            r,
+            task,
+            attempt,
+            seen,
+            true,
+            &mut true,
+            None,
+            graph.as_deref_mut(),
+        );
+        if result.is_err() {
+            // A failed traversal must not leave partially validated entries.
+            seen.clear();
+            self.last = crate::record_index::Cache::new();
+            if let Some(graph) = graph {
+                graph.nodes.clear();
+            }
+        }
+        result
+    }
+    // Traversal state is borrowed for one operation, including the worker budget.
+    #[allow(clippy::too_many_arguments)]
+    fn validate_inner(
+        &mut self,
+        r: &Value,
+        task: Option<&str>,
+        attempt: Option<&str>,
+        seen: &mut HashSet<String>,
+        root: bool,
+        parallel_available: &mut bool,
+        claimed: Option<&std::sync::Mutex<HashSet<String>>>,
+        mut graph: Option<&mut GraphProof>,
+    ) -> Result<Vec<Value>> {
+        for key in ["records", "payload_bytes", "tokens"] {
+            if r[key].as_u64().is_none() {
+                return fail("InvalidReference", "Invalid result usage");
+            }
+        }
+        let key = digest(r)?;
+        if !root && seen.contains(&key) {
+            if let Some(graph) = graph {
+                graph.reused_nodes += 1;
+            }
+            return Ok(vec![]);
+        }
+        if !root
+            && let Some(claimed) = claimed
+            && !claimed
+                .lock()
+                .map_err(|_| Error::new("RuntimeError", "Validation claims poisoned"))?
+                .insert(key.clone())
+        {
+            if let Some(graph) = graph {
+                graph.reused_nodes += 1;
+            }
+            return Ok(vec![]);
+        }
+        seen.insert(key.clone());
+        let (refs, deps) = self.validate_node(r, task, attempt)?;
+        let unique = refs.iter().map(digest).collect::<Result<HashSet<_>>>()?;
+        if *parallel_available && deps.len() >= 64 {
+            // Spend one bounded worker budget at the first wide node, including
+            // one reached through a narrow plan/raw chain. Workers never spawn.
+            *parallel_available = false;
+            // Claims are NOT validation proofs: a sibling may skip an in-flight
+            // node only because every worker must join successfully before any
+            // results are accepted. This also deduplicates overlapping subgraphs
+            // (e.g. converted columns and a plan that retains those same groups).
+            // The set and all worker Readers die with this owning operation.
+            let claimed = std::sync::Mutex::new(seen.clone());
+            let collect_graph = graph.is_some();
+            let results = std::thread::scope(|scope| {
+                let mut handles = vec![];
+                for chunk in deps.chunks(deps.len().div_ceil(4)) {
+                    let config = self.config.clone();
+                    let claimed = &claimed;
+                    handles.push(scope.spawn(move || {
+                        let mut reader = Reader::new(config);
+                        let mut completed = HashSet::new();
+                        let mut local_graph =
+                            collect_graph.then(|| GraphProof::new(&reader.config));
+                        for dep in chunk {
+                            reader.validate_inner(
+                                dep,
+                                None,
+                                None,
+                                &mut completed,
+                                false,
+                                &mut false,
+                                Some(claimed),
+                                local_graph.as_mut(),
+                            )?;
+                        }
+                        Ok((completed, local_graph))
+                    }));
+                }
+                // Join every worker even after one fails; no validation work
+                // may outlive the retained-input lifetime of the caller.
+                handles
+                    .into_iter()
+                    .map(|handle| {
+                        handle
+                            .join()
+                            .map_err(|_| Error::new("RuntimeError", "Validation worker panicked"))?
+                    })
+                    .collect::<Vec<Result<(HashSet<String>, Option<GraphProof>)>>>()
+            });
+            let completed = results.into_iter().collect::<Result<Vec<_>>>()?;
+            for (proofs, local_graph) in completed {
+                seen.extend(proofs);
+                if let (Some(graph), Some(local_graph)) = (graph.as_deref_mut(), local_graph) {
+                    graph.checked_nodes += local_graph.checked_nodes;
+                    graph.reused_nodes += local_graph.reused_nodes;
+                    for (path, identity) in local_graph.path_identities {
+                        if graph
+                            .path_identities
+                            .get(&path)
+                            .is_some_and(|prior| *prior != identity)
+                        {
+                            return fail(
+                                "UnsafeRecovery",
+                                "Parallel validation namespace identity changed",
+                            );
+                        }
+                        graph.path_identities.insert(path, identity);
+                    }
+                    graph.nodes.extend(local_graph.nodes);
+                }
+            }
+        } else {
+            for dep in &deps {
+                self.validate_inner(
+                    dep,
+                    None,
+                    None,
+                    seen,
+                    false,
+                    parallel_available,
+                    claimed,
+                    graph.as_deref_mut(),
+                )?;
+            }
+        }
+        if let Some(graph) = graph {
+            graph.checked_nodes += 1;
+            let mut paths = BTreeSet::new();
+            paths.insert(field(&r["manifest"]["segment"], "path")?.to_string());
+            for member in &refs {
+                paths.insert(field(&member["segment"], "path")?.to_string());
+            }
+            graph.register_paths(&paths)?;
+            graph.nodes.insert(
+                key,
+                GraphNode {
+                    members: unique.into_iter().collect(),
+                    dependencies: deps.iter().map(digest).collect::<Result<_>>()?,
+                    paths,
+                    contents: json!({"records":refs,"dependencies":deps}),
+                },
+            );
+        }
+        Ok(refs.clone())
     }
     pub(crate) fn validate_node(
         &mut self,
@@ -979,6 +1520,15 @@ impl Store {
         refs: &[Value],
         fault: &mut Fault<'_>,
     ) -> Result<u64> {
+        self.hold_preparation_with_graph(owner, refs, fault, None)
+    }
+    fn hold_preparation_with_graph(
+        &mut self,
+        owner: &str,
+        refs: &[Value],
+        fault: &mut Fault<'_>,
+        graph: Option<&GraphProof>,
+    ) -> Result<u64> {
         let operation =
             self.writer_registry
                 .as_mut()
@@ -989,7 +1539,7 @@ impl Store {
             self.preparations.insert(owner.to_string());
         }
         self.config
-            .catalog(|c| c.hold(&self.config, owner, refs, fault))?;
+            .catalog(|c| c.hold_with_graph(&self.config, owner, refs, graph, fault))?;
         Ok(operation)
     }
     fn clean_provisional(
@@ -1604,11 +2154,24 @@ impl Store {
         id: &str,
         fault: &mut Fault<'_>,
     ) -> Result<Vec<Value>> {
+        self.publish_inputs_with_graph(groups, records, id, fault, None)
+    }
+    pub(crate) fn publish_inputs_with_graph(
+        &mut self,
+        groups: &Value,
+        records: Vec<InputRecord>,
+        id: &str,
+        fault: &mut Fault<'_>,
+        graph: Option<&mut GraphProof>,
+    ) -> Result<Vec<Value>> {
+        if let Some(graph) = graph.as_deref() {
+            graph.check_storage(&self.config)?;
+        }
         use crate::finalization::Api;
         self.check_request(Api::Publish, id)?;
         let permit = self.enter_writer(fault)?;
         self.resume_provisional_cleanup(&permit, fault)?;
-        self.publish_attempt(groups, records, id, &permit, fault)
+        self.publish_attempt(groups, records, id, &permit, fault, graph)
     }
     fn publish_attempt(
         &mut self,
@@ -1617,6 +2180,7 @@ impl Store {
         id: &str,
         permit: &crate::writer_gate::Permit,
         fault: &mut Fault<'_>,
+        mut graph: Option<&mut GraphProof>,
     ) -> Result<Vec<Value>> {
         use crate::finalization::Api;
         let groups = groups
@@ -1629,11 +2193,17 @@ impl Store {
             .filter(|d| d.is_object())
             .cloned()
             .collect::<Vec<_>>();
-        let operation_sequence = self.hold_preparation(&operation, &held, fault)?;
+        let operation_sequence =
+            self.hold_preparation_with_graph(&operation, &held, fault, graph.as_deref())?;
         let mut members = Vec::new();
         let mut envs = Vec::new();
         let mut descriptors: Vec<Value> = vec![];
         let mut reader = Reader::new(self.config.clone());
+        let mut validated = graph
+            .as_deref()
+            .map(GraphProof::validated)
+            .unwrap_or_default();
+        let mut publication_nodes = vec![];
         for group in groups {
             let mut ordinals = vec![];
             let mut own_envs = vec![];
@@ -1663,7 +2233,11 @@ impl Store {
                     }
                     deps.push(descriptors[i as usize].clone())
                 } else {
-                    reader.validate(dep, None, None)?;
+                    if let Some(graph) = graph.as_deref_mut() {
+                        reader.validate_with_graph(dep, None, None, &mut validated, graph)?;
+                    } else {
+                        reader.validate_scoped(dep, None, None, &mut validated)?;
+                    }
                     deps.push(dep.clone());
                 }
             }
@@ -1672,6 +2246,9 @@ impl Store {
             )?;
             let (payload_bytes, tokens) = result_usage(&own_envs, &deps, "ValueError")?;
             descriptors.push(json!({"local":members.len(),"digest":logical,"records":ordinals.len(),"payload_bytes":payload_bytes,"tokens":tokens}));
+            if graph.is_some() {
+                publication_nodes.push((ordinals.clone(), deps.clone()));
+            }
             let payload = bytes(
                 &json!({"version":2,"records":ordinals,"dependencies":deps,"digest":logical}),
             )?;
@@ -1697,8 +2274,46 @@ impl Store {
             .as_mut()
             .unwrap()
             .results(operation_sequence, &result, &[], fault)?;
-        self.config
-            .finalize_publication(&result, &refs[0]["segment"], fault)?;
+        if let Some(graph) = graph.as_deref_mut() {
+            for (root, (ordinals, deps)) in result.iter().zip(publication_nodes) {
+                let records = ordinals
+                    .iter()
+                    .map(|index| refs[*index].clone())
+                    .collect::<Vec<_>>();
+                let dependencies = deps
+                    .into_iter()
+                    .map(|mut dependency| {
+                        if let Some(ordinal) = dependency.get("local").and_then(Value::as_u64) {
+                            dependency.as_object_mut().unwrap().remove("local");
+                            dependency["manifest"] = refs[ordinal as usize].clone();
+                        }
+                        dependency
+                    })
+                    .collect::<Vec<_>>();
+                let mut paths = BTreeSet::new();
+                paths.insert(field(&root["manifest"]["segment"], "path")?.to_string());
+                for record in &records {
+                    paths.insert(field(&record["segment"], "path")?.to_string());
+                }
+                graph.register_paths(&paths)?;
+                graph.nodes.insert(
+                    digest(root)?,
+                    GraphNode {
+                        members: records.iter().map(digest).collect::<Result<_>>()?,
+                        dependencies: dependencies.iter().map(digest).collect::<Result<_>>()?,
+                        paths,
+                        contents: json!({"records":records,"dependencies":dependencies}),
+                    },
+                );
+                graph.published_nodes += 1;
+            }
+        }
+        self.config.finalize_publication_with_graph(
+            &result,
+            &refs[0]["segment"],
+            fault,
+            graph.as_deref(),
+        )?;
         self.config
             .catalog(|c| c.release_preparation(&self.config, &[operation], fault))?;
         self.preparations.remove(&crate::writer_gate::operation_key(
@@ -1985,7 +2600,7 @@ fn visibility_io(e: std::io::Error) -> Error {
         e.into()
     }
 }
-fn visible_exact(f: &mut File, n: usize) -> Result<Vec<u8>> {
+fn visible_exact(f: &mut impl Read, n: usize) -> Result<Vec<u8>> {
     let mut v = vec![0; n];
     f.read_exact(&mut v).map_err(visibility_io)?;
     Ok(v)
@@ -2186,9 +2801,21 @@ pub fn storage_path(root: &Path, relative: &str) -> Result<PathBuf> {
 }
 
 pub fn open_committed(root: &Path, relative: &str) -> Result<File> {
-    let p = storage_path(root, relative)?;
+    relative_storage_path(root, relative)?;
     for i in 0..5 {
-        match File::open(&p) {
+        // A record read used to canonicalize both absolute paths, walking every
+        // ancestor on the shared filesystem before opening each small tensor.
+        // openat2 performs the same beneath-root confinement during the open
+        // itself. No index, envelope or payload validation is skipped.
+        #[cfg(target_os = "linux")]
+        let opened = open_beneath(root, relative);
+        #[cfg(not(target_os = "linux"))]
+        let opened: Option<std::io::Result<File>> = None;
+        let opened = match opened {
+            Some(result) => result,
+            None => File::open(storage_path(root, relative)?),
+        };
+        match opened {
             Ok(f) => return Ok(f),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && i < 4 => {
                 std::thread::sleep(std::time::Duration::from_millis(10 << i))
@@ -2197,6 +2824,47 @@ pub fn open_committed(root: &Path, relative: &str) -> Result<File> {
         }
     }
     unreachable!()
+}
+
+#[cfg(target_os = "linux")]
+fn open_beneath(root: &Path, relative: &str) -> Option<std::io::Result<File>> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let directory = match File::open(root) {
+        Ok(directory) => directory,
+        Err(error) => return Some(Err(error)),
+    };
+    let relative = match CString::new(relative) {
+        Ok(relative) => relative,
+        Err(_) => return Some(Err(std::io::Error::from_raw_os_error(libc::EINVAL))),
+    };
+    // All fields are integers and zero is the required value for unused fields.
+    let mut how: libc::open_how = unsafe { std::mem::zeroed() };
+    how.flags = (libc::O_RDONLY | libc::O_CLOEXEC) as u64;
+    how.resolve = libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS;
+    // The borrowed descriptor and C string remain valid for the synchronous
+    // syscall. A successful return transfers exactly one descriptor to File.
+    let descriptor = unsafe {
+        libc::syscall(
+            libc::SYS_openat2,
+            directory.as_raw_fd(),
+            relative.as_ptr(),
+            &how,
+            std::mem::size_of::<libc::open_how>(),
+        )
+    };
+    if descriptor >= 0 {
+        return Some(Ok(unsafe { File::from_raw_fd(descriptor as i32) }));
+    }
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error() {
+        // Old kernels/seccomp may not expose openat2. Absolute symlinks that
+        // still resolve inside root are also legal in the existing contract;
+        // use its canonicalization check for these uncommon paths.
+        Some(libc::ENOSYS | libc::EINVAL | libc::EPERM | libc::EXDEV | libc::ELOOP) => None,
+        _ => Some(Err(error)),
+    }
 }
 
 #[cfg(test)]

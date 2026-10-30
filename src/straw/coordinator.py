@@ -2,7 +2,9 @@
 
 import dataclasses
 import json
+import logging
 import resource
+import threading
 import time
 from pathlib import Path
 
@@ -43,6 +45,8 @@ class Coordinator:
         self.store, self.queue_id = store, queue_id
         self.limits = limits or Limits()
         self.lease_seconds, self.clock = lease_seconds, clock
+        self._call_lock = threading.RLock()
+        self._validation_context = threading.local()
         self._cpu_started = time.process_time()
         options = dict(
             queue_id=queue_id,
@@ -60,7 +64,36 @@ class Coordinator:
 
     def _call(self, method, values):
         values.pop("self", None)
-        return json.loads(self._native.call(method, _encode(values), self.clock(), self.store._fault))
+        # The native coordinator serializes operations. Sample the lease clock
+        # after waiting for preceding calls, so a queued heartbeat cannot write
+        # an old deadline after a newer renewal or arrive already out of date.
+        started = acquired = time.monotonic()
+        try:
+            with self._call_lock:
+                acquired = time.monotonic()
+                return json.loads(
+                    self._native.call(
+                        method,
+                        _encode(values),
+                        self.clock(),
+                        self.store._fault,
+                        getattr(self._validation_context, "scope", None),
+                    )
+                )
+        except BaseException:
+            scope = getattr(self._validation_context, "scope", None)
+            if scope is not None:
+                scope.close()
+            raise
+        finally:
+            finished = time.monotonic()
+            if finished - started >= 10:
+                logging.getLogger(__name__).warning(
+                    "Straw coordinator call delayed: method=%s, lock_wait=%.1fs, operation=%.1fs",
+                    method,
+                    acquired - started,
+                    finished - acquired,
+                )
 
     def __getattr__(self, key):
         if key not in {

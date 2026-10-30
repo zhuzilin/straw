@@ -10,7 +10,7 @@ use crate::field;
 use crate::framing;
 use crate::framing::Kind;
 use crate::protocol::{self, PackStatus};
-use crate::store::{Config, Reader};
+use crate::store::{Config, GraphProof, Reader};
 use crate::{Error, Fault, Result, array, digest, fail};
 use serde_json::{Value, json};
 #[cfg(test)]
@@ -230,6 +230,8 @@ impl crate::closure_node::Digest for ReferenceDigest {
 
 struct StagingReader<'a, 'f> {
     reader: Reader,
+    config: &'a Config,
+    graph: Option<&'a GraphProof>,
     fault: &'a mut Fault<'f>,
 }
 impl crate::closure::SourceModel for StagingReader<'_, '_> {
@@ -238,6 +240,14 @@ impl crate::closure::SourceModel for StagingReader<'_, '_> {
 impl crate::staging_consumption::Source for StagingReader<'_, '_> {
     type Error = Error;
     fn manifest(&mut self, reference: &Value) -> Result<Value> {
+        if let Some(contents) = self
+            .graph
+            .map(|graph| graph.manifest(self.config, reference))
+            .transpose()?
+            .flatten()
+        {
+            return Ok(contents);
+        }
         self.reader.manifest(reference)
     }
     fn point(&mut self, name: &str) -> Result<()> {
@@ -436,6 +446,60 @@ impl std::ops::Deref for LockedCatalog<'_> {
 }
 
 impl LockedCatalog<'_> {
+    pub(crate) fn hold_with_graph(
+        &mut self,
+        config: &Config,
+        owner: &str,
+        refs: &[Value],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.catalog
+            .hold_with_graph(config, owner, refs, graph, fault)
+    }
+    pub(crate) fn retain_many_with_graph(
+        &mut self,
+        config: &Config,
+        roots: &[(String, Vec<Value>)],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.catalog
+            .retain_many_with_graph(config, roots, graph, fault)
+    }
+    pub(crate) fn retain_queue_many_with_graph(
+        &mut self,
+        config: &Config,
+        prefix: &str,
+        roots: &[(String, Vec<Value>)],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.catalog
+            .retain_queue_many_with_graph(config, prefix, roots, graph, fault)
+    }
+    #[cfg(test)]
+    pub(crate) fn consume_with_graph(
+        &mut self,
+        config: &Config,
+        refs: &[Value],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.catalog
+            .consume_with_receipt(config, refs, None, graph, fault)
+    }
+    pub(crate) fn consume_once_with_graph(
+        &mut self,
+        config: &Config,
+        id: &str,
+        refs: &[Value],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.catalog
+            .consume_once_with_graph(config, id, refs, graph, fault)
+    }
     pub fn pack(
         &mut self,
         config: &Config,
@@ -460,16 +524,6 @@ impl LockedCatalog<'_> {
         self.catalog.retain(config, owner, refs, fault)
     }
 
-    pub(crate) fn hold(
-        &mut self,
-        config: &Config,
-        owner: &str,
-        refs: &[Value],
-        fault: &mut Fault<'_>,
-    ) -> Result<()> {
-        self.catalog.hold(config, owner, refs, fault)
-    }
-
     pub fn retain_many(
         &mut self,
         config: &Config,
@@ -479,6 +533,7 @@ impl LockedCatalog<'_> {
         self.catalog.retain_many(config, roots, fault)
     }
 
+    #[cfg(test)]
     pub(crate) fn retain_queue_many(
         &mut self,
         config: &Config,
@@ -929,6 +984,39 @@ impl Catalog {
         })
     }
 
+    fn closure_with_graph(
+        &mut self,
+        config: &Config,
+        reference: &Value,
+        inspected: &mut HashSet<String>,
+        reader: &mut Reader,
+        graph: Option<&GraphProof>,
+    ) -> Result<BTreeSet<String>> {
+        if let Some(graph) = graph
+            && let Some((paths, _)) = graph.project(config, reference, false)?
+        {
+            let mut resolved = BTreeSet::new();
+            for path in paths {
+                let identity = self.namespace.identity(&path)?;
+                if graph.path_identity(&path) != Some(identity.as_str()) {
+                    return fail(
+                        "UnsafeRecovery",
+                        "Validation graph namespace identity changed",
+                    );
+                }
+                if self.log.indexes().deleted.contains(&identity) {
+                    return fail(
+                        "InvalidReference",
+                        "Reference has been reclaimed; retain before releasing its source owner",
+                    );
+                }
+                resolved.insert(identity);
+            }
+            return Ok(resolved);
+        }
+        self.closure_inner(config, reference, inspected, reader)
+    }
+
     pub fn retain(
         &mut self,
         config: &Config,
@@ -941,11 +1029,12 @@ impl Catalog {
 
     /// Preserve prior attempt roots even when a conflicting retry is rejected
     /// later. The publication releases this holder only after durable staging.
-    pub(crate) fn hold(
+    pub(crate) fn hold_with_graph(
         &mut self,
         config: &Config,
         owner: &str,
         refs: &[Value],
+        graph: Option<&GraphProof>,
         fault: &mut Fault<'_>,
     ) -> Result<()> {
         self.require_context(config)?;
@@ -956,7 +1045,13 @@ impl Catalog {
         let mut inspected = HashSet::new();
         let mut reader = Reader::new(config.clone());
         for reference in refs {
-            additions.extend(self.closure_inner(config, reference, &mut inspected, &mut reader)?);
+            additions.extend(self.closure_with_graph(
+                config,
+                reference,
+                &mut inspected,
+                &mut reader,
+                graph,
+            )?);
         }
         let mut paths = self
             .log
@@ -980,9 +1075,10 @@ impl Catalog {
     ) -> Result<()> {
         self.require_context(config)?;
         writer_retirement::public_owners(roots.iter().map(|(owner, _)| owner.as_str()))?;
-        self.retain_many_inner(config, roots, fault)
+        self.retain_many_inner(config, roots, None, fault)
     }
 
+    #[cfg(test)]
     pub(crate) fn retain_queue_many(
         &mut self,
         config: &Config,
@@ -992,13 +1088,37 @@ impl Catalog {
     ) -> Result<()> {
         self.require_context(config)?;
         writer_retirement::queue_owners(prefix, roots.iter().map(|(owner, _)| owner.as_str()))?;
-        self.retain_many_inner(config, roots, fault)
+        self.retain_many_inner(config, roots, None, fault)
     }
 
+    pub(crate) fn retain_many_with_graph(
+        &mut self,
+        config: &Config,
+        roots: &[(String, Vec<Value>)],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.require_context(config)?;
+        writer_retirement::public_owners(roots.iter().map(|(owner, _)| owner.as_str()))?;
+        self.retain_many_inner(config, roots, graph, fault)
+    }
+    pub(crate) fn retain_queue_many_with_graph(
+        &mut self,
+        config: &Config,
+        prefix: &str,
+        roots: &[(String, Vec<Value>)],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
+        self.require_context(config)?;
+        writer_retirement::queue_owners(prefix, roots.iter().map(|(owner, _)| owner.as_str()))?;
+        self.retain_many_inner(config, roots, graph, fault)
+    }
     fn retain_many_inner(
         &mut self,
         config: &Config,
         roots: &[(String, Vec<Value>)],
+        graph: Option<&GraphProof>,
         fault: &mut Fault<'_>,
     ) -> Result<()> {
         let mut updates = serde_json::Map::new();
@@ -1010,7 +1130,13 @@ impl Catalog {
             }
             let mut paths = BTreeSet::new();
             for r in refs {
-                paths.extend(self.closure_inner(config, r, &mut inspected, &mut reader)?);
+                paths.extend(self.closure_with_graph(
+                    config,
+                    r,
+                    &mut inspected,
+                    &mut reader,
+                    graph,
+                )?);
             }
             if paths.is_empty() && !self.log.indexes().owners.contains_key(owner) {
                 continue;
@@ -1250,7 +1376,7 @@ impl Catalog {
         refs: &[Value],
         fault: &mut Fault<'_>,
     ) -> Result<()> {
-        self.consume_with_receipt(config, refs, None, fault)
+        self.consume_with_receipt(config, refs, None, None, fault)
     }
 
     // Queue WAL markers name a single adoption. Unlike explicit publication
@@ -1262,6 +1388,16 @@ impl Catalog {
         refs: &[Value],
         fault: &mut Fault<'_>,
     ) -> Result<()> {
+        self.consume_once_with_graph(config, id, refs, None, fault)
+    }
+    pub(crate) fn consume_once_with_graph(
+        &mut self,
+        config: &Config,
+        id: &str,
+        refs: &[Value],
+        graph: Option<&GraphProof>,
+        fault: &mut Fault<'_>,
+    ) -> Result<()> {
         self.require_context(config)?;
         if !valid_handoff_id(id) {
             return fail("InvalidReference", "Invalid staging handoff identity");
@@ -1269,7 +1405,7 @@ impl Catalog {
         if self.log.indexes().consumed_handoffs.contains(id) {
             return Ok(());
         }
-        self.consume_with_receipt(config, refs, Some(id), fault)
+        self.consume_with_receipt(config, refs, Some(id), graph, fault)
     }
 
     pub(crate) fn handoff_consumed(&self, id: &str) -> bool {
@@ -1281,12 +1417,15 @@ impl Catalog {
         config: &Config,
         refs: &[Value],
         receipt: Option<&str>,
+        graph: Option<&GraphProof>,
         fault: &mut Fault<'_>,
     ) -> Result<()> {
         self.require_context(config)?;
         let plan = crate::staging_consumption::plan(
             &mut StagingReader {
                 reader: Reader::new(config.clone()),
+                config,
+                graph,
                 fault,
             },
             &mut ReferenceDigest,

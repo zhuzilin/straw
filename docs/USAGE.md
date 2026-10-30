@@ -354,6 +354,26 @@ On recovery, first restore the chosen checkpoint's model/optimizer/RNG and its m
 
 ## Scoped batch reads
 
+`TensorRef.load_many(refs, reader=reader, workers=4)` loads a caller-bounded batch
+in its original order. Bound the total requested payload bytes before calling;
+each returned tensor has independent writable storage. Native workers sort
+requests by pack/extent/ordinal, reuse the extent handle and combine nearby reads
+in a window of at most 1 MiB per worker. Gaps larger than 4 KiB are not prefetched.
+Every selected frame, typed layout and touched checksum chunk is still checked.
+Failed attempts discard both the handle and window before the ordinary bounded
+visibility retry; windows are discarded at batch exit. The lower-level
+`reader.read_tensor_ranges(..., read_ahead_bytes=0)` disables read-ahead for
+comparisons (the maximum supported setting is 8 MiB per worker).
+
+For one publish/queue handoff, `with store.validation_scope(coordinator):` reuses
+successful immutable dependency proofs across participating operations in the
+current thread. Each new root still checks its descriptor and task/attempt;
+catalog transfers still check namespace identity, ownership authorization and
+tombstones under the catalog lock. The scope never pins data, never crosses
+storage identity, closes on exit, and is invalidated by any participating error.
+Keep input owners alive throughout it. Explicit `store.validate` and later
+operations still revalidate; the scope does not cache payload read results.
+
 Use one `with store.read_session() as reader:` block for adjacent immutable publications. The reader provides `validate`, `manifest`, `read`, `read_record`, `envelope`, and checked tensor reads. Pass it to `TensorRef.from_record_set_many(store, publication, reader=reader)` and `tensor.load(reader=reader)` to avoid repeatedly parsing a shared extent index.
 
 The Rust reader caches up to eight authenticated indexes using an LRU keyed by the complete extent descriptor, with an 8 MiB encoded-metadata budget. A single oversized active index evicts all other entries. Each manifest and record read still authenticates its frame and payload; tensor reads authenticate touched chunks. `validate` rechecks logical descriptors and task/attempt authorization on every call. Index authentication runs again on a cache miss or in a new session. Calls within one session serialize; use independent sessions for parallel reads. Keep a durable owner or `store.pin` for the entire operation: a read session is not an ownership pin. Sessions close on context exit and reject all inherited operations after fork.

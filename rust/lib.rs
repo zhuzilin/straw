@@ -70,6 +70,9 @@ mod queue_transition;
 mod reclamation;
 mod record_manifest;
 mod reference_node;
+// Retain the serial traversal model tests; production uses the scoped walk.
+mod read_window;
+#[cfg(test)]
 mod reference_validation;
 mod replay;
 mod request;

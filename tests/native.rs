@@ -262,6 +262,108 @@ fn reactivation_rechecks_an_owner_created_after_authentication() -> Result<()> {
 }
 
 #[test]
+fn shared_validation_keeps_root_identity_checks_and_clears_failed_scope() -> Result<()> {
+    use std::collections::HashSet;
+    use straw::store::Reader;
+    let dir = tempfile::tempdir()?;
+    let mut store = Store::new(config(dir.path(), 1024 * 1024));
+    let leaf = store.publish(
+        &json!([{"records":[0],"dependencies":[]}]),
+        vec![record(
+            "leaf",
+            b"data",
+            json!({"task_id":"owner", "attempt_id":"a"}),
+        )],
+        "leaf",
+        &mut |_| Ok(()),
+    )?[0]
+        .clone();
+    let roots = store.publish(
+        &json!([
+            {"records":[0],"dependencies":[leaf]},
+            {"records":[1],"dependencies":[leaf]}
+        ]),
+        vec![
+            record("state", b"state", json!({})),
+            record("progress", b"progress", json!({})),
+        ],
+        "roots",
+        &mut |_| Ok(()),
+    )?;
+    let mut reader = Reader::new(store.config.clone());
+    let mut scope = HashSet::new();
+    for root in &roots {
+        assert_eq!(
+            reader.validate_scoped(root, None, None, &mut scope)?.len(),
+            1
+        );
+    }
+    assert_eq!(scope.len(), 3);
+    // The leaf was already seen as a dependency. It must still check its own
+    // task/attempt when a caller subsequently validates it as a root.
+    assert_eq!(
+        reader
+            .validate_scoped(&leaf, Some("owner"), Some("a"), &mut scope)?
+            .len(),
+        1
+    );
+    assert!(
+        reader
+            .validate_scoped(&leaf, Some("other"), Some("a"), &mut scope)
+            .is_err()
+    );
+    assert!(scope.is_empty());
+    assert!(
+        reader
+            .validate_scoped(&leaf, Some("owner"), Some("other"), &mut scope)
+            .is_err()
+    );
+    assert!(scope.is_empty());
+    Ok(())
+}
+
+#[test]
+fn validation_does_not_reuse_a_previous_operations_dependency_proof() -> Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+    let dir = tempfile::tempdir()?;
+    let mut store = Store::new(config(dir.path(), 0));
+    let leaf = store.publish(
+        &json!([{"records":[0],"dependencies":[]}]),
+        vec![record("leaf", b"payload", json!({}))],
+        "leaf",
+        &mut |_| Ok(()),
+    )?[0]
+        .clone();
+    let root = store.publish(
+        &json!([{"records":[0],"dependencies":[leaf]}]),
+        vec![record("root", b"root", json!({}))],
+        "root",
+        &mut |_| Ok(()),
+    )?[0]
+        .clone();
+    store.config.validate(&root, None, None)?;
+    let segment = &leaf["manifest"]["segment"];
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(dir.path().join(segment["path"].as_str().unwrap()))?;
+    file.seek(SeekFrom::Start(segment["offset"].as_u64().unwrap()))?;
+    file.write_all(&[0; 12])?;
+    file.sync_all()?;
+    assert!(store.config.validate(&root, None, None).is_err());
+    assert!(
+        store
+            .publish(
+                &json!([{"records":[0],"dependencies":[root]}]),
+                vec![record("next", b"next", json!({}))],
+                "next",
+                &mut |_| Ok(()),
+            )
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn append_100_samples_one_file_and_read_old_extents() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let mut store = Store::new(config(dir.path(), 1024 * 1024));

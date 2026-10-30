@@ -2,6 +2,20 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.7
+
+### 批量读取与校验
+
+- 新增 `TensorRef.load_many(..., reader=reader, workers=4)`，按调用方限定的批量大小并行读取 tensor，并保持输入顺序。Native worker 复用 extent 句柄，在有界窗口中合并相邻读取（默认每个 worker 1 MiB，最多 8 MiB），不跨越大于 4 KiB 的空隙预读。每个结果拥有独立可写存储；typed layout、选中的 frame 和触及的 checksum chunk 仍需认证。失败尝试在重试前丢弃句柄和窗口。
+- 通过一次 native 调用读取 tensor 成员 envelope，并在同一 publication 内复用规范路径信息，减少 Python/native 边界调用和共享文件系统路径解析。
+- 新增 `store.validation_scope(coordinator)`，在一次本地 publication／queue 交接中复用不可变依赖证明。新根仍核对 descriptor 和 task／attempt 身份；catalog 变更仍在锁内检查所有权、namespace 和 tombstone。Scope 按线程隔离、不负责 pin 数据，并在退出或参与操作报错时关闭。显式 validate 和 payload 读取保留原有检查。
+- Coordinator 在取得调用锁后才读取 lease 时钟，避免排队调用提交过时的时间戳。慢调用日志分别记录锁等待与实际操作耗时。
+
+### 兼容与限制
+
+- 现有 Python 调用签名及已存储 WAL／packed-record 格式保持兼容；新增批量与 scope API 需要 0.1.7。读取和 validation scope 期间仍须保留输入 owner。调用方需限制 batch 返回的 payload 总字节数；预读上限只约束 worker 临时缓冲区。
+- 本版减少小读取调用和重复不可变图处理。吞吐仍取决于请求局部性、缓存状态和存储环境，不构成共享文件系统带宽保证，也不改变 GC 持久化要求。
+
 ## 0.1.6
 
 - 复用已确认的 writer registry 状态并为操作查找建立索引；不确定结果后重建。只缓存完整同步成功的 writer 目录，并保持 inode 身份。保留既有 publication WAL 屏障与 wire format。

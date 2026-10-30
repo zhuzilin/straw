@@ -1,7 +1,7 @@
 //! Single-owner durable scheduling and accepted-result state machine.
 use crate::journal::Journal;
 use crate::queue_state;
-use crate::store::{Config, Reader, Record, Store, mkdir, sync, sync_dir};
+use crate::store::{Config, GraphProof, Reader, Record, Store, mkdir, sync, sync_dir};
 use crate::{Error, Fault, Result, array, bytes, checked_sum, digest, fail, field, number, uid};
 use serde_json::{Value, json};
 use std::{
@@ -96,12 +96,13 @@ fn retain_commit(
     roots: &[(String, Vec<Value>)],
     storage_failed: &mut bool,
     fault: &mut Fault<'_>,
+    graph: Option<&GraphProof>,
 ) -> Result<()> {
     let retained = (|| {
         let verified = config.verify_queue_reactivation(storage_prefix, reactivated, fault)?;
         config.catalog(|catalog| {
             catalog.retain_queue_verified(config, storage_prefix, &verified, fault)?;
-            catalog.retain_queue_many(config, storage_prefix, roots, fault)
+            catalog.retain_queue_many_with_graph(config, storage_prefix, roots, graph, fault)
         })
     })();
     if retained
@@ -500,7 +501,15 @@ impl Coordinator {
         result.recovery_seconds = started.elapsed().as_secs_f64();
         Ok(result)
     }
-    fn commit(&mut self, mut events: Value, fault: &mut Fault<'_>) -> Result<()> {
+    fn commit(&mut self, events: Value, fault: &mut Fault<'_>) -> Result<()> {
+        self.commit_with_graph(events, fault, None)
+    }
+    fn commit_with_graph(
+        &mut self,
+        mut events: Value,
+        fault: &mut Fault<'_>,
+        graph: Option<&GraphProof>,
+    ) -> Result<()> {
         // No newer commit/GC may abandon the owner that protects an unfinished
         // staging handoff. Recovery also reaches this barrier before its epoch.
         self.finish_consumption(fault)?;
@@ -549,6 +558,7 @@ impl Coordinator {
             &roots,
             &mut self.storage_failed,
             fault,
+            graph,
         )?;
         crate::queue_commit::persist_and_apply::<_, crate::wal_file::NativeLibrary, _, _>(
             &mut self.journal,
@@ -570,7 +580,13 @@ impl Coordinator {
         )
         .map_err(|error| commit_error(error, &events))?;
         fault("before_staging_consume")?;
-        self.finish_consumption(fault)
+        finish_consumption_with_graph(
+            &self.store.config,
+            &self.storage_prefix,
+            &mut self.pending_consumption,
+            fault,
+            graph,
+        )
     }
     fn finish_consumption(&mut self, fault: &mut Fault<'_>) -> Result<()> {
         finish_consumption(
@@ -641,16 +657,19 @@ impl Coordinator {
     fn count(&mut self, key: &str) {
         self.counters[key] = json!(number(&self.counters, key) + 1);
     }
-    fn validate(
+    fn validate_graph(
         &mut self,
         reference: &Value,
         task: Option<&str>,
         attempt: Option<&str>,
+        graph: &mut GraphProof,
     ) -> Result<Vec<Value>> {
-        let result = self.store.config.validate(reference, task, attempt);
+        let mut reader = Reader::new(self.store.config.clone());
+        let result =
+            reader.validate_with_graph(reference, task, attempt, &mut graph.validated(), graph);
         if result
             .as_ref()
-            .is_err_and(|e| e.kind == "StorageUnavailable")
+            .is_err_and(|error| error.kind == "StorageUnavailable")
         {
             self.storage_failed = true;
         }
@@ -677,6 +696,19 @@ impl Coordinator {
             &mut self.progress_cache,
             &mut ProgressReader {
                 config: &self.store.config,
+                validated_members: None,
+                storage_failed: &mut self.storage_failed,
+            },
+            reference,
+        )
+        .map_err(progress_error)
+    }
+    fn progress_from_members(&mut self, reference: &Value, members: &[Value]) -> Result<Value> {
+        crate::queue_progress::load(
+            &mut self.progress_cache,
+            &mut ProgressReader {
+                config: &self.store.config,
+                validated_members: Some(members),
                 storage_failed: &mut self.storage_failed,
             },
             reference,
@@ -769,11 +801,11 @@ impl Coordinator {
         }
         Ok(state)
     }
-    fn validate_consumer_state(&mut self, state: &Value) -> Result<()> {
-        self.validate(&state["state_ref"], None, None)?;
+    fn validate_consumer_state(&mut self, state: &Value, graph: &mut GraphProof) -> Result<()> {
+        self.validate_graph(&state["state_ref"], None, None, graph)?;
         if !state["progress_ref"].is_null() {
-            self.validate(&state["progress_ref"], None, None)?;
-            let progress = self.progress(&state["progress_ref"])?;
+            let members = self.validate_graph(&state["progress_ref"], None, None, graph)?;
+            let progress = self.progress_from_members(&state["progress_ref"], &members)?;
             let processed = number(state, "processed_cursor");
             let fetched = number(state, "fetch_cursor");
             if array(&progress, "processed_positions")?
@@ -798,6 +830,19 @@ impl Coordinator {
         now: f64,
         fault: &mut Fault<'_>,
     ) -> Result<Value> {
+        self.call_with_graph(method, args, now, fault, None)
+    }
+    pub(crate) fn call_with_graph(
+        &mut self,
+        method: &str,
+        args: &Value,
+        now: f64,
+        fault: &mut Fault<'_>,
+        graph: Option<&mut GraphProof>,
+    ) -> Result<Value> {
+        let mut local_graph = GraphProof::new(&self.store.config);
+        let graph = graph.unwrap_or(&mut local_graph);
+        graph.check_storage(&self.store.config)?;
         if !crate::queue_application::permitted(&self.journal, self.journal.closed(), method) {
             return fail(
                 "UnsafeRecovery",
@@ -815,15 +860,16 @@ impl Coordinator {
                         return fail("StaleAttempt", "Reader lease identity mismatch");
                     }
                 }
-                self.commit(
+                self.commit_with_graph(
                     json!([{"type":"ReaderDone","leases":args["leases"]}]),
                     fault,
+                    Some(graph),
                 )?;
                 Ok(Value::Null)
             }
             "collect_garbage" => self.collect_garbage(fault),
             "release_checkpoint" => {
-                self.commit(json!([{"type":"CheckpointReleased","checkpoint_id":field(args,"checkpoint_id")?}]), fault)?;
+                self.commit_with_graph(json!([{"type":"CheckpointReleased","checkpoint_id":field(args,"checkpoint_id")?}]), fault, Some(graph))?;
                 Ok(Value::Null)
             }
             "submit_tasks" => {
@@ -874,11 +920,11 @@ impl Coordinator {
                         };
                     }
                     if !t["input_ref"].is_null() {
-                        self.validate(&t["input_ref"], None, None)?;
+                        self.validate_graph(&t["input_ref"], None, None, graph)?;
                     }
                     ids.push(json!(id));
                 }
-                self.commit(json!([Self::event("Submitted",&request,json!(ids),json!({"tasks":tasks,"producer_id":producer,"producer_state":args["producer_state"]}))]),fault)?;
+                self.commit_with_graph(json!([Self::event("Submitted",&request,json!(ids),json!({"tasks":tasks,"producer_id":producer,"producer_state":args["producer_state"]}))]),fault, Some(graph))?;
                 Ok(json!(ids))
             }
             "acquire" => {
@@ -894,7 +940,11 @@ impl Coordinator {
                     .map(|(id, _)| json!(id))
                     .collect::<Vec<_>>();
                 if !expired.is_empty() {
-                    self.commit(json!([{"type":"Expired","task_ids":expired}]), fault)?;
+                    self.commit_with_graph(
+                        json!([{"type":"Expired","task_ids":expired}]),
+                        fault,
+                        Some(graph),
+                    )?;
                     self.counters["expired_leases"] =
                         json!(number(&self.counters, "expired_leases") + expired.len() as u64);
                 }
@@ -963,7 +1013,11 @@ impl Coordinator {
                     .iter()
                     .map(|a| a["lease"].clone())
                     .collect::<Vec<_>>();
-                self.commit(json!([{"type":"Leased","leases":leases}]), fault)?;
+                self.commit_with_graph(
+                    json!([{"type":"Leased","leases":leases}]),
+                    fault,
+                    Some(graph),
+                )?;
                 for lease in leases {
                     self.deadlines
                         .insert(field(&lease, "task_id")?.into(), now + self.lease_seconds);
@@ -1027,7 +1081,7 @@ impl Coordinator {
                 last["request_digest"] = json!(request.1);
                 let response = json!(if yielding { "pending" } else { "saved" });
                 last["response"] = response.clone();
-                self.commit(json!(events), fault)?;
+                self.commit_with_graph(json!(events), fault, Some(graph))?;
                 Ok(response)
             }
             "release_tasks" => {
@@ -1062,7 +1116,7 @@ impl Coordinator {
                     last["request_key"] = json!(request.0);
                     last["request_digest"] = json!(request.1);
                     last["response"] = json!(response);
-                    self.commit(json!(events), fault)?;
+                    self.commit_with_graph(json!(events), fault, Some(graph))?;
                 }
                 Ok(json!(response))
             }
@@ -1115,15 +1169,17 @@ impl Coordinator {
                 if number(reference, "records") == 0 && !boolean(&task["spec"], "allow_empty") {
                     return fail("InvalidReference", "Task does not allow empty output");
                 }
-                self.validate(
+                self.validate_graph(
                     reference,
                     Some(field(lease, "task_id")?),
                     Some(field(lease, "attempt_id")?),
+                    graph,
                 )?;
                 let receipt = json!({"commit_id":uid(),"task_id":lease["task_id"],"submission_id":id,"digest":content,"position":array(&self.state,"commits")?.len(),"result_ref":reference});
-                self.commit(
+                self.commit_with_graph(
                     json!([{"type":"Completed","receipt":receipt,"lease":lease}]),
                     fault,
+                    Some(graph),
                 )?;
                 fault("before_complete_reply")?;
                 self.complete_seconds.push(started.elapsed().as_secs_f64());
@@ -1149,7 +1205,7 @@ impl Coordinator {
                 } else {
                     "failed"
                 });
-                self.commit(json!([Self::event("Failed",&request,response.clone(),json!({"task_ids":[lease["task_id"]],"failure":failure,"retryable":retryable}))]),fault)?;
+                self.commit_with_graph(json!([Self::event("Failed",&request,response.clone(),json!({"task_ids":[lease["task_id"]],"failure":failure,"retryable":retryable}))]),fault, Some(graph))?;
                 if matches!(
                     failure["category"].as_str(),
                     Some("QuotaExceeded" | "StorageUnavailable")
@@ -1173,9 +1229,9 @@ impl Coordinator {
                 if yielding && !crate::queue_admin::has_capacity(self.next_pending_order, 1) {
                     return fail("ValueError", "Queue scheduling order is exhausted");
                 }
-                self.validate(&args["input_ref"], None, None)?;
+                self.validate_graph(&args["input_ref"], None, None, graph)?;
                 let response = json!(if yielding { "pending" } else { "saved" });
-                self.commit(
+                self.commit_with_graph(
                     json!([Self::event(
                         if yielding { "Yielded" } else { "TaskProgress" },
                         &request,
@@ -1183,6 +1239,7 @@ impl Coordinator {
                         json!({"task_id":args["lease"]["task_id"],"input_ref":args["input_ref"]})
                     )]),
                     fault,
+                    Some(graph),
                 )?;
                 Ok(response)
             }
@@ -1195,7 +1252,7 @@ impl Coordinator {
                 if terminal(&self.state["tasks"][id]["state"]) {
                     return fail("ValueError", "Cannot cancel terminal task");
                 };
-                self.commit(
+                self.commit_with_graph(
                     json!([Self::event(
                         "Cancelled",
                         &request,
@@ -1203,15 +1260,17 @@ impl Coordinator {
                         json!({"task_id":id})
                     )]),
                     fault,
+                    Some(graph),
                 )?;
                 Ok(json!("cancelled"))
             }
             "seal_input" => {
                 let request = self.request("seal", field(args, "request_id")?, &Value::Null)?;
                 if request.2.is_none() {
-                    self.commit(
+                    self.commit_with_graph(
                         json!([Self::event("Sealed", &request, json!("sealed"), json!({}))]),
                         fault,
+                        Some(graph),
                     )?;
                 }
                 Ok(json!("sealed"))
@@ -1275,15 +1334,20 @@ impl Coordinator {
                     match self.call("fail_task", &call, now, fault) {
                         Ok(_) => {}
                         Err(e) if e.kind == "LeaseExpired" => {
-                            self.commit(
+                            self.commit_with_graph(
                                 json!([{"type":"Expired","task_ids":[lease["task_id"]]}]),
                                 fault,
+                                Some(graph),
                             )?;
                         }
                         Err(e) => return Err(e),
                     }
                 }
-                self.commit(json!([{"type":"ReaderRetired","worker_id":worker}]), fault)?;
+                self.commit_with_graph(
+                    json!([{"type":"ReaderRetired","worker_id":worker}]),
+                    fault,
+                    Some(graph),
+                )?;
                 Ok(json!(array(&self.state,"commits")?.iter().filter(|r|self.state["tasks"][r["task_id"].as_str().unwrap_or("")]["lease"]["worker_id"]==worker).cloned().collect::<Vec<_>>()))
             }
             "open_consumer" => {
@@ -1325,8 +1389,8 @@ impl Coordinator {
                 if let Some(response) = request.2 {
                     return Ok(response);
                 };
-                self.validate_consumer_state(&state)?;
-                self.commit(
+                self.validate_consumer_state(&state, graph)?;
+                self.commit_with_graph(
                     json!([Self::event(
                         "ConsumerState",
                         &request,
@@ -1334,6 +1398,7 @@ impl Coordinator {
                         json!({"consumer_id":id,"state":state})
                     )]),
                     fault,
+                    Some(graph),
                 )?;
                 Ok(state)
             }
@@ -1357,8 +1422,8 @@ impl Coordinator {
                 if request.2.is_some() {
                     return Ok(self.state["batches"][batch_id].clone());
                 };
-                self.validate(&args["plan_ref"], None, None)?;
-                self.commit(
+                self.validate_graph(&args["plan_ref"], None, None, graph)?;
+                self.commit_with_graph(
                     json!([Self::event(
                         "BatchPlanned",
                         &request,
@@ -1366,6 +1431,7 @@ impl Coordinator {
                         json!({"batch_id":batch_id,"batch":batch})
                     )]),
                     fault,
+                    Some(graph),
                 )?;
                 Ok(batch)
             }
@@ -1382,9 +1448,9 @@ impl Coordinator {
                 if let Some(response) = request.2 {
                     return Ok(response);
                 };
-                self.validate(&args["ready_ref"], None, None)?;
-                self.validate_consumer_state(&state)?;
-                self.commit(json!([Self::event("BatchReady",&request,content.clone(),json!({"consumer_id":id,"batch_id":batch,"ready_ref":args["ready_ref"],"state":state}))]),fault)?;
+                self.validate_graph(&args["ready_ref"], None, None, graph)?;
+                self.validate_consumer_state(&state, graph)?;
+                self.commit_with_graph(json!([Self::event("BatchReady",&request,content.clone(),json!({"consumer_id":id,"batch_id":batch,"ready_ref":args["ready_ref"],"state":state}))]),fault, Some(graph))?;
                 Ok(content)
             }
             "get_batch" => Ok(self.state["batches"][field(args, "batch_id")?].clone()),
@@ -1409,7 +1475,7 @@ impl Coordinator {
                     }
                     return fail("UnsafeRecovery", "Checkpoint receipt disappeared");
                 }
-                let members = self.validate(reference, None, None)?;
+                let members = self.validate_graph(reference, None, None, graph)?;
                 if members.len() != 1 {
                     return fail("InvalidReference", "Expected one JSON checkpoint record");
                 };
@@ -1421,7 +1487,7 @@ impl Coordinator {
                 if checkpoint["version"] != 1 || checkpoint["checkpoint_id"] != id {
                     return fail("InvalidReference", "Checkpoint identity/schema mismatch");
                 };
-                self.validate(&checkpoint["consumer_state"], None, None)?;
+                self.validate_graph(&checkpoint["consumer_state"], None, None, graph)?;
                 if array(&checkpoint, "batch_ids")?
                     .iter()
                     .any(|id| !boolean(&self.state["batches"][id.as_str().unwrap_or("")], "ready"))
@@ -1445,7 +1511,7 @@ impl Coordinator {
                 content["checkpoint_ref"] = reference.clone();
                 let request = self.request("checkpoint", id, &content)?;
                 if request.2.is_none() {
-                    self.commit(
+                    self.commit_with_graph(
                         json!([Self::event(
                             "Checkpoint",
                             &request,
@@ -1453,6 +1519,7 @@ impl Coordinator {
                             json!({"checkpoint_id":id,"checkpoint":content})
                         )]),
                         fault,
+                        Some(graph),
                     )?;
                 }
                 Ok(content)
@@ -1582,12 +1649,16 @@ fn recovered_consumption(
 
 struct ProgressReader<'a> {
     config: &'a Config,
+    validated_members: Option<&'a [Value]>,
     storage_failed: &'a mut bool,
 }
 impl crate::queue_progress::Reader for ProgressReader<'_> {
     type Error = Error;
     fn members(&mut self, reference: &Value) -> Result<Vec<Value>> {
-        let result = self.config.validate(reference, None, None);
+        let result = match self.validated_members {
+            Some(members) => Ok(members.to_vec()),
+            None => self.config.validate(reference, None, None),
+        };
         if result
             .as_ref()
             .is_err_and(|error| error.kind == "StorageUnavailable")
@@ -1643,6 +1714,7 @@ impl crate::queue_progress::Reader for GcPreflight<'_, '_> {
         crate::queue_progress::Reader::members(
             &mut ProgressReader {
                 config: self.config,
+                validated_members: None,
                 storage_failed: self.storage_failed,
             },
             reference,
@@ -1652,6 +1724,7 @@ impl crate::queue_progress::Reader for GcPreflight<'_, '_> {
         crate::queue_progress::Reader::read(
             &mut ProgressReader {
                 config: self.config,
+                validated_members: None,
                 storage_failed: self.storage_failed,
             },
             reference,
@@ -1663,6 +1736,16 @@ fn finish_consumption(
     prefix: &str,
     pending: &mut Vec<(String, Vec<Value>)>,
     fault: &mut Fault<'_>,
+) -> Result<()> {
+    finish_consumption_with_graph(config, prefix, pending, fault, None)
+}
+
+fn finish_consumption_with_graph(
+    config: &Config,
+    prefix: &str,
+    pending: &mut Vec<(String, Vec<Value>)>,
+    fault: &mut Fault<'_>,
+    graph: Option<&GraphProof>,
 ) -> Result<()> {
     if pending.is_empty() {
         return Ok(());
@@ -1680,7 +1763,7 @@ fn finish_consumption(
                         .collect::<Result<HashSet<_>>>()?;
                     catalog.require_retained(&owners)?;
                 }
-                let outcome = catalog.consume_once(config, id, roots, fault);
+                let outcome = catalog.consume_once_with_graph(config, id, roots, graph, fault);
                 crate::consumption::pop_completed(pending, outcome.is_ok());
                 outcome?;
             }

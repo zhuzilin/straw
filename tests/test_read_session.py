@@ -140,7 +140,9 @@ def test_failed_context_closes_reader(tmp_path):
             a.load(reader=reader)
 
 
-@pytest.mark.parametrize("operation", ["read", "close", "manifest", "validate", "envelope", "read_record"])
+@pytest.mark.parametrize(
+    "operation", ["read", "batch_read", "close", "manifest", "validate", "member_envelopes", "envelope", "read_record"]
+)
 def test_inherited_session_rejects_before_locking(tmp_path, operation):
     import multiprocessing
 
@@ -157,9 +159,11 @@ def test_inherited_session_rejects_before_locking(tmp_path, operation):
                 try:
                     if operation == "read":
                         reader.read_tensor_range(a.record_ref, 0, a.nbytes)
+                    elif operation == "batch_read":
+                        reader.read_tensor_ranges([(a.record_ref, 0, a.nbytes)])
                     elif operation == "close":
                         reader.close()
-                    elif operation in {"manifest", "validate"}:
+                    elif operation in {"manifest", "validate", "member_envelopes"}:
                         getattr(reader, operation)(a.blob_set)
                     else:
                         getattr(reader, operation)(a.record_ref)
@@ -263,3 +267,45 @@ def test_tensor_metadata_uses_scoped_reader_and_rejects_wrong_pool(tmp_path):
         with other.read_session() as reader:
             with pytest.raises(InvalidReference, match="different storage"):
                 TensorRef.from_record_set_many(store, a.blob_set, reader=reader)
+
+
+def test_bulk_tensor_metadata_preserves_mixed_member_ordinals_and_checks_payloads(tmp_path):
+    from straw import Record
+    from straw.tensor import TensorRef, tensor_record
+
+    with SharedFilesystemStore(tmp_path, "mixed", codecs=("tensor.v1", "bytes.v1")) as store:
+        ref = store.publish(
+            [Record("text", b"text"), tensor_record(torch.arange(6), "tensor", kind="tokens")],
+            submission_id="mixed",
+        )
+        with store.read_session() as reader:
+            values = TensorRef.from_record_set_many(store, ref, reader=reader)
+            assert set(values) == {1}
+            assert torch.equal(values[1].load(reader=reader), torch.arange(6))
+            value = values[1]
+            entry = store.inspect_segment(value.record_ref.segment)["records"][value.record_ref.ordinal]
+            offset = value.record_ref.segment.offset + entry["offset"]
+            with Path(value.path).open("rb") as stream:
+                stream.seek(offset)
+                envelope_size, _ = struct.unpack("<IQ", stream.read(12))
+            flip(value.path, offset + 12 + envelope_size)
+            with pytest.raises(CorruptData, match="chunk checksum"):
+                value.load(reader=reader)
+        with pytest.raises(RuntimeError, match="closed"):
+            reader.member_envelopes(ref)
+
+
+def test_bulk_metadata_rechecks_manifest_payload(tmp_path):
+    with make_store(tmp_path) as store:
+        a, _ = tensors(store)
+        with store.read_session() as reader:
+            reader.member_envelopes(a.blob_set)
+            ref = a.blob_set.manifest
+            entry = store.inspect_segment(ref.segment)["records"][ref.ordinal]
+            offset = ref.segment.offset + entry["offset"]
+            with Path(a.path).open("rb") as stream:
+                stream.seek(offset)
+                envelope_size, _ = struct.unpack("<IQ", stream.read(12))
+            flip(a.path, offset + 12 + envelope_size)
+            with pytest.raises(CorruptData, match="payload checksum"):
+                reader.member_envelopes(a.blob_set)

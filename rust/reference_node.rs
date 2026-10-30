@@ -181,33 +181,6 @@ pub fn validate<R: Reader, D: Digest>(
     Ok((records, dependencies))
 }
 
-pub struct Adapter<'a, R: Reader, D: Digest> {
-    reader: &'a mut R,
-    digester: D,
-}
-
-impl<R: Reader, D: Digest> crate::closure::SourceModel for Adapter<'_, R, D> {
-    type Reference = Value;
-}
-
-impl<'a, R: Reader, D: Digest> Adapter<'a, R, D> {
-    pub fn new(reader: &'a mut R, digester: D) -> Self {
-        Self { reader, digester }
-    }
-}
-
-impl<R: Reader, D: Digest> crate::reference_validation::Source for Adapter<'_, R, D> {
-    type Error = Error<R::Error, D::Error>;
-    fn node(
-        &mut self,
-        reference: &Value,
-        task: Option<&str>,
-        attempt: Option<&str>,
-    ) -> Result<(Vec<Value>, Vec<Value>), Self::Error> {
-        validate(self.reader, &mut self.digester, reference, task, attempt)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

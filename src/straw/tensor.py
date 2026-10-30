@@ -113,7 +113,12 @@ class TensorRef:
 
     def shares_storage(self, store):
         """Whether a reference can be reused without copying tensor bytes."""
-        return self.run_id == store.run_id and Path(self.root).resolve() == store.backend.root
+        if self.run_id != store.run_id:
+            return False
+        # Native-created refs already carry this canonical root. Avoid walking
+        # its full shared-filesystem path again for every small tensor; legacy
+        # noncanonical references still resolve before comparison.
+        return self.root == str(store.backend.root) or Path(self.root).resolve() == store.backend.root
 
     def share(self, store, *, submission_id):
         """Return a publication dependency and ordinal for a destination queue.
@@ -150,7 +155,26 @@ class TensorRef:
         """
         if reader is not None and (reader.run_id != store.run_id or reader.backend.root != store.backend.root):
             raise InvalidReference("Tensor reader belongs to a different storage root or run")
-        members = (reader or store).manifest(reference)["records"]
+        if reader is not None:
+            # Preserve ordinals in mixed publications while amortizing JSON and
+            # Python/native transitions across their tensor member envelopes.
+            paths = {}
+            tensors = {}
+            for item in reader.member_envelopes(reference, codec="tensor.v1"):
+                record = RecordRef.from_dict(item["record"])
+                if record.segment.path not in paths:
+                    paths[record.segment.path] = str(store.backend.path(record.segment.path))
+                tensors[item["ordinal"]] = cls._from_envelope(
+                    store,
+                    record,
+                    item["envelope"],
+                    blob_set=reference,
+                    ordinal=item["ordinal"],
+                    validated=validated,
+                    path=paths[record.segment.path],
+                )
+            return tensors
+        members = store.manifest(reference)["records"]
         indices, tensors = {}, {}
         for ordinal, member in enumerate(members):
             record = RecordRef.from_dict(member)
@@ -190,7 +214,7 @@ class TensorRef:
         )
 
     @classmethod
-    def _from_envelope(cls, store, reference, envelope, *, blob_set, ordinal, validated):
+    def _from_envelope(cls, store, reference, envelope, *, blob_set, ordinal, validated, path=None):
         metadata = envelope["metadata"]
         if envelope["codec"] != "tensor.v1" or metadata.get("dtype") not in DTYPES:
             raise UnsupportedSchema("Expected a supported tensor.v1 record")
@@ -200,7 +224,7 @@ class TensorRef:
         if math.prod(shape) * torch.empty((), dtype=DTYPES[metadata["dtype"]]).element_size() != envelope["length"]:
             raise CorruptData("Tensor shape and byte length disagree")
         return cls(
-            path=str(store.backend.path(reference.segment.path)),
+            path=path if path is not None else str(store.backend.path(reference.segment.path)),
             shape=shape,
             dtype=metadata["dtype"],
             nbytes=envelope["length"],
@@ -284,6 +308,44 @@ class TensorRef:
             else torch.empty(self.shape, dtype=self.torch_dtype)
         )
         return tensor.pin_memory() if pin_memory and not tensor.is_pinned() else tensor
+
+    @classmethod
+    def load_many(cls, values, *, reader, workers=4):
+        """Load an ordered, caller-bounded group with all ordinary read checks.
+
+        This never changes lazy references into tensors implicitly. Callers
+        select only eager values and bound the batch's total bytes before entry.
+        """
+        values = list(values)
+        for value in values:
+            if not isinstance(value, cls):
+                raise TypeError("TensorRef.load_many requires tensor references")
+            if value.dtype not in DTYPES:
+                raise UnsupportedSchema(f"Unsupported tensor dtype: {value.dtype}")
+            if not value.shares_storage(reader):
+                raise InvalidReference("Tensor reader belongs to a different storage root or run")
+        loaded = reader.read_tensor_ranges(
+            [(value.record_ref, 0, value.nbytes) for value in values],
+            workers=workers,
+            expected=[{"shape": value.shape, "dtype": value.dtype, "length": value.nbytes} for value in values],
+        )
+        result = []
+        for value, (envelope, payload) in zip(values, loaded, strict=True):
+            metadata = envelope["metadata"]
+            if (
+                envelope["codec"] != "tensor.v1"
+                or metadata["dtype"] != value.dtype
+                or tuple(metadata["shape"]) != value.shape
+                or envelope["length"] != value.nbytes
+                or math.prod(value.shape) * torch.empty((), dtype=value.torch_dtype).element_size() != value.nbytes
+            ):
+                raise CorruptData("Typed tensor reference disagrees with its published envelope")
+            result.append(
+                torch.frombuffer(payload, dtype=value.torch_dtype).reshape(value.shape)
+                if value.nbytes
+                else torch.empty(value.shape, dtype=value.torch_dtype)
+            )
+        return result
 
     def __getitem__(self, rows):
         if not isinstance(rows, slice) or rows.step not in (None, 1):
