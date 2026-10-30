@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import resource
 import socket
 import sys
@@ -12,13 +13,16 @@ from dataclasses import asdict
 from pathlib import Path
 
 import straw._native
-from straw import Record, SharedFilesystemStore
+from straw import Record, SharedFilesystemStore, TaskSpec
+from straw.coordinator import Coordinator
 from straw.protocol import RecordSetRef, digest, encode
 
 
-def prepare(root, depth, *, corrupt_leaf=False):
+def prepare(root, depth, *, corrupt_leaf=False, width=1):
     if depth < 1:
         raise ValueError("depth must be positive")
+    if width < 1:
+        raise ValueError("width must be positive")
     store = SharedFilesystemStore(root, "dependency-probe", online_gc=True)
     leaf = store.publish([Record("leaf", b"x" * 1024)], submission_id="leaf")
     store.seal()
@@ -27,10 +31,19 @@ def prepare(root, depth, *, corrupt_leaf=False):
         previous["digest"] = "0" * 64
     records = []
     for i in range(depth):
-        logical = digest({"records": [], "dependencies": [previous["digest"]]})
-        manifest = {"version": 2, "records": [], "dependencies": [previous], "digest": logical}
+        # A wide root makes native workers descend the same deep chain; shared
+        # claims must still join its complete validation before accepting it.
+        dependencies = [previous] * (width if i == depth - 1 else 1)
+        logical = digest({"records": [], "dependencies": [dep["digest"] for dep in dependencies]})
+        manifest = {"version": 2, "records": [], "dependencies": dependencies, "digest": logical}
         records.append(Record(f"node-{i}", encode(manifest), "record-set.v2"))
-        previous = {"local": i, "digest": logical, "records": 0, "payload_bytes": 1024, "tokens": 0}
+        previous = {
+            "local": i,
+            "digest": logical,
+            "records": 0,
+            "payload_bytes": sum(dep["payload_bytes"] for dep in dependencies),
+            "tokens": 0,
+        }
     raw = store.write_records(records, submission_id="chain")
     store.seal()
     previous.pop("local")
@@ -47,17 +60,19 @@ def percentiles(samples):
     }
 
 
-def run(root, depth, mode, samples, stack_kib):
+def run(root, depth, mode, samples, stack_kib, width=1):
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    store, reference, leaf, raw = prepare(root, depth)
+    store, reference, leaf, raw = prepare(root, depth, width=width)
     report = {
         "hostname": socket.gethostname(),
         "depth": depth,
+        "width": width,
         "native_sha256": hashlib.sha256(Path(straw._native.__file__).read_bytes()).hexdigest(),
     }
     if stack_kib:
         _, hard = resource.getrlimit(resource.RLIMIT_STACK)
         resource.setrlimit(resource.RLIMIT_STACK, (stack_kib * 1024, hard))
+        os.environ["RUST_MIN_STACK"] = str(stack_kib * 1024)
     print(f"operation_started={mode}", file=sys.stderr, flush=True)
     try:
         if mode in ("validate", "measure"):
@@ -68,6 +83,14 @@ def run(root, depth, mode, samples, stack_kib):
                 latencies.append((time.perf_counter_ns() - before) / 1e6)
             report["validate_ms"] = percentiles(latencies)
             report["samples_ms"] = latencies
+        if mode == "scoped":
+            with Coordinator(store, namespace=True, queue_id="deep", exclusive_owner="probe") as queue:
+                with store.validation_scope(queue) as scope:
+                    assert queue.submit_tasks("deep", [TaskSpec("deep", input_ref=reference)]) == ["deep"]
+                    assert json.loads(scope.stats())["nodes"] == depth + 1
+                store.release_publications([*raw, leaf])
+                assert store.collect_garbage()["reclaimed_files"] == 0
+                assert list(store.read(leaf))[0].payload == b"x" * 1024
         if mode in ("retain", "measure"):
             before = time.perf_counter_ns()
             store.retain("root", [reference])
@@ -87,11 +110,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--depth", type=int, default=2048)
-    parser.add_argument("--mode", choices=("validate", "retain", "measure"), default="measure")
+    parser.add_argument("--width", type=int, default=1)
+    parser.add_argument("--mode", choices=("validate", "scoped", "retain", "measure"), default="measure")
     parser.add_argument("--samples", type=int, default=50)
     parser.add_argument("--stack-kib", type=int, default=0)
     args = parser.parse_args()
-    print(json.dumps(run(args.root, args.depth, args.mode, args.samples, args.stack_kib), sort_keys=True))
+    print(json.dumps(run(args.root, args.depth, args.mode, args.samples, args.stack_kib, args.width), sort_keys=True))
 
 
 if __name__ == "__main__":

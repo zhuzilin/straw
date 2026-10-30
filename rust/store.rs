@@ -1235,135 +1235,151 @@ impl Reader {
         claimed: Option<&std::sync::Mutex<HashSet<String>>>,
         mut graph: Option<&mut GraphProof>,
     ) -> Result<Vec<Value>> {
-        for key in ["records", "payload_bytes", "tokens"] {
-            if r[key].as_u64().is_none() {
-                return fail("InvalidReference", "Invalid result usage");
-            }
+        // Keep both descent and postorder proof collection on the heap. Worker
+        // Readers use this same worklist, so depth never consumes native stack.
+        enum Work {
+            Visit(Value, bool),
+            Complete(String, GraphNode),
         }
-        let key = digest(r)?;
-        if !root && seen.contains(&key) {
-            if let Some(graph) = graph {
-                graph.reused_nodes += 1;
-            }
-            return Ok(vec![]);
-        }
-        if !root
-            && let Some(claimed) = claimed
-            && !claimed
-                .lock()
-                .map_err(|_| Error::new("RuntimeError", "Validation claims poisoned"))?
-                .insert(key.clone())
-        {
-            if let Some(graph) = graph {
-                graph.reused_nodes += 1;
-            }
-            return Ok(vec![]);
-        }
-        seen.insert(key.clone());
-        let (refs, deps) = self.validate_node(r, task, attempt)?;
-        let unique = refs.iter().map(digest).collect::<Result<HashSet<_>>>()?;
-        if *parallel_available && deps.len() >= 64 {
-            // Spend one bounded worker budget at the first wide node, including
-            // one reached through a narrow plan/raw chain. Workers never spawn.
-            *parallel_available = false;
-            // Claims are NOT validation proofs: a sibling may skip an in-flight
-            // node only because every worker must join successfully before any
-            // results are accepted. This also deduplicates overlapping subgraphs
-            // (e.g. converted columns and a plan that retains those same groups).
-            // The set and all worker Readers die with this owning operation.
-            let claimed = std::sync::Mutex::new(seen.clone());
-            let collect_graph = graph.is_some();
-            let results = std::thread::scope(|scope| {
-                let mut handles = vec![];
-                for chunk in deps.chunks(deps.len().div_ceil(4)) {
-                    let config = self.config.clone();
-                    let claimed = &claimed;
-                    handles.push(scope.spawn(move || {
-                        let mut reader = Reader::new(config);
-                        let mut completed = HashSet::new();
-                        let mut local_graph =
-                            collect_graph.then(|| GraphProof::new(&reader.config));
-                        for dep in chunk {
-                            reader.validate_inner(
-                                dep,
-                                None,
-                                None,
-                                &mut completed,
-                                false,
-                                &mut false,
-                                Some(claimed),
-                                local_graph.as_mut(),
-                            )?;
-                        }
-                        Ok((completed, local_graph))
-                    }));
-                }
-                // Join every worker even after one fails; no validation work
-                // may outlive the retained-input lifetime of the caller.
-                handles
-                    .into_iter()
-                    .map(|handle| {
-                        handle
-                            .join()
-                            .map_err(|_| Error::new("RuntimeError", "Validation worker panicked"))?
-                    })
-                    .collect::<Vec<Result<(HashSet<String>, Option<GraphProof>)>>>()
-            });
-            let completed = results.into_iter().collect::<Result<Vec<_>>>()?;
-            for (proofs, local_graph) in completed {
-                seen.extend(proofs);
-                if let (Some(graph), Some(local_graph)) = (graph.as_deref_mut(), local_graph) {
-                    graph.checked_nodes += local_graph.checked_nodes;
-                    graph.reused_nodes += local_graph.reused_nodes;
-                    for (path, identity) in local_graph.path_identities {
-                        if graph
-                            .path_identities
-                            .get(&path)
-                            .is_some_and(|prior| *prior != identity)
-                        {
-                            return fail(
-                                "UnsafeRecovery",
-                                "Parallel validation namespace identity changed",
-                            );
-                        }
-                        graph.path_identities.insert(path, identity);
+        let mut pending = vec![Work::Visit(r.clone(), root)];
+        let mut root_records = Vec::new();
+        while let Some(work) = pending.pop() {
+            let (r, root) = match work {
+                Work::Visit(reference, root) => (reference, root),
+                Work::Complete(key, node) => {
+                    if let Some(graph) = graph.as_deref_mut() {
+                        graph.register_paths(&node.paths)?;
+                        graph.checked_nodes += 1;
+                        graph.nodes.insert(key, node);
                     }
-                    graph.nodes.extend(local_graph.nodes);
+                    continue;
+                }
+            };
+            for key in ["records", "payload_bytes", "tokens"] {
+                if r[key].as_u64().is_none() {
+                    return fail("InvalidReference", "Invalid result usage");
                 }
             }
-        } else {
-            for dep in &deps {
-                self.validate_inner(
-                    dep,
-                    None,
-                    None,
-                    seen,
-                    false,
-                    parallel_available,
-                    claimed,
-                    graph.as_deref_mut(),
-                )?;
+            let key = digest(&r)?;
+            if !root && seen.contains(&key) {
+                if let Some(graph) = graph.as_deref_mut() {
+                    graph.reused_nodes += 1;
+                }
+                continue;
+            }
+            if !root
+                && let Some(claimed) = claimed
+                && !claimed
+                    .lock()
+                    .map_err(|_| Error::new("RuntimeError", "Validation claims poisoned"))?
+                    .insert(key.clone())
+            {
+                if let Some(graph) = graph.as_deref_mut() {
+                    graph.reused_nodes += 1;
+                }
+                continue;
+            }
+            seen.insert(key.clone());
+            let (refs, deps) = self.validate_node(
+                &r,
+                if root { task } else { None },
+                if root { attempt } else { None },
+            )?;
+            let unique = refs.iter().map(digest).collect::<Result<HashSet<_>>>()?;
+            if graph.is_some() {
+                let mut paths = BTreeSet::new();
+                paths.insert(field(&r["manifest"]["segment"], "path")?.to_string());
+                for member in &refs {
+                    paths.insert(field(&member["segment"], "path")?.to_string());
+                }
+                pending.push(Work::Complete(
+                    key,
+                    GraphNode {
+                        members: unique.into_iter().collect(),
+                        dependencies: deps.iter().map(digest).collect::<Result<_>>()?,
+                        paths,
+                        contents: json!({"records":refs,"dependencies":deps}),
+                    },
+                ));
+            }
+            if root {
+                root_records = refs;
+            }
+            if *parallel_available && deps.len() >= 64 {
+                // Spend one bounded worker budget at the first wide node, including
+                // one reached through a narrow plan/raw chain. Workers never spawn.
+                *parallel_available = false;
+                // Claims are NOT validation proofs: a sibling may skip an in-flight
+                // node only because every worker must join successfully before any
+                // results are accepted. This also deduplicates overlapping subgraphs
+                // (e.g. converted columns and a plan that retains those same groups).
+                // The set and all worker Readers die with this owning operation.
+                let claimed = std::sync::Mutex::new(seen.clone());
+                let collect_graph = graph.is_some();
+                let results = std::thread::scope(|scope| {
+                    let mut handles = vec![];
+                    for chunk in deps.chunks(deps.len().div_ceil(4)) {
+                        let config = self.config.clone();
+                        let claimed = &claimed;
+                        handles.push(scope.spawn(move || {
+                            let mut reader = Reader::new(config);
+                            let mut completed = HashSet::new();
+                            let mut local_graph =
+                                collect_graph.then(|| GraphProof::new(&reader.config));
+                            for dep in chunk {
+                                reader.validate_inner(
+                                    dep,
+                                    None,
+                                    None,
+                                    &mut completed,
+                                    false,
+                                    &mut false,
+                                    Some(claimed),
+                                    local_graph.as_mut(),
+                                )?;
+                            }
+                            Ok((completed, local_graph))
+                        }));
+                    }
+                    // Join every worker even after one fails; no validation work
+                    // may outlive the retained-input lifetime of the caller.
+                    handles
+                        .into_iter()
+                        .map(|handle| {
+                            handle.join().map_err(|_| {
+                                Error::new("RuntimeError", "Validation worker panicked")
+                            })?
+                        })
+                        .collect::<Vec<Result<(HashSet<String>, Option<GraphProof>)>>>()
+                });
+                let completed = results.into_iter().collect::<Result<Vec<_>>>()?;
+                for (proofs, local_graph) in completed {
+                    seen.extend(proofs);
+                    if let (Some(graph), Some(local_graph)) = (graph.as_deref_mut(), local_graph) {
+                        graph.checked_nodes += local_graph.checked_nodes;
+                        graph.reused_nodes += local_graph.reused_nodes;
+                        for (path, identity) in local_graph.path_identities {
+                            if graph
+                                .path_identities
+                                .get(&path)
+                                .is_some_and(|prior| *prior != identity)
+                            {
+                                return fail(
+                                    "UnsafeRecovery",
+                                    "Parallel validation namespace identity changed",
+                                );
+                            }
+                            graph.path_identities.insert(path, identity);
+                        }
+                        graph.nodes.extend(local_graph.nodes);
+                    }
+                }
+            } else {
+                // Reverse scheduling preserves the manifest's dependency order.
+                pending.extend(deps.into_iter().rev().map(|dep| Work::Visit(dep, false)));
             }
         }
-        if let Some(graph) = graph {
-            graph.checked_nodes += 1;
-            let mut paths = BTreeSet::new();
-            paths.insert(field(&r["manifest"]["segment"], "path")?.to_string());
-            for member in &refs {
-                paths.insert(field(&member["segment"], "path")?.to_string());
-            }
-            graph.register_paths(&paths)?;
-            graph.nodes.insert(
-                key,
-                GraphNode {
-                    members: unique.into_iter().collect(),
-                    dependencies: deps.iter().map(digest).collect::<Result<_>>()?,
-                    paths,
-                    contents: json!({"records":refs,"dependencies":deps}),
-                },
-            );
-        }
-        Ok(refs.clone())
+        Ok(root_records)
     }
     pub(crate) fn validate_node(
         &mut self,

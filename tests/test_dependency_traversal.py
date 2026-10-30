@@ -21,8 +21,10 @@ def prepare(*args, **kwargs):
     return module.prepare(*args, **kwargs)
 
 
-@pytest.mark.parametrize("mode", ["validate", "retain"])
-def test_deep_valid_dependency_graph_on_small_stack(tmp_path, mode):
+@pytest.mark.parametrize(
+    "mode,width", [("validate", 1), ("validate", 64), ("scoped", 1), ("scoped", 64), ("retain", 1)]
+)
+def test_deep_valid_dependency_graph_on_small_stack(tmp_path, mode, width):
     result = subprocess.run(
         [
             sys.executable,
@@ -32,6 +34,8 @@ def test_deep_valid_dependency_graph_on_small_stack(tmp_path, mode):
             str(tmp_path / mode),
             "--depth",
             "2048",
+            "--width",
+            str(width),
             "--mode",
             mode,
             "--stack-kib",
