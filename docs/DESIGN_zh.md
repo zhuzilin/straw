@@ -72,6 +72,8 @@ Catalog 与队列日志独立。步骤之间崩溃可以多保留保护，不能
 
 **C2 — 身份与重试。** 稳定请求 ID 绑定内容和结果。先查询匹配的已记录回执，再考虑旧 payload 或 lease 校验；payload 可能已经回收。内容冲突必须报错。新请求必须校验当前 task／attempt／epoch 和过期状态。恢复撤销旧工作权限，但保留尚未退出的 reader 根。外部 fencing 必须排除并发协调器；`exclusive_owner` 字符串不执行 fencing。
 
+`lease_seconds=None` 时，时间不会使 lease 过期：外部监督器必须探测故障，并在调用 `retire_worker` 前确认进程退出。Attempt／epoch 检查仍然必需，恢复时必须保留原有 lease 模式。
+
 <a id="c4"></a>
 
 **C4 — Checkpoint 回退。** 持久保存 model／optimizer／RNG checkpoint 及其匹配的 consumer 位置。该 checkpoint 之后已经处理的结果，需要在确认处理前有独立 replay owner。恢复 checkpoint 的位置，而非队列最新 cursor。回退 WAL 更新前先重新保留变为必需的 receipt／batch 根；保护缺失或数据损坏必须拒绝更新。替代版本持久化后才释放旧 checkpoint／replay owner。真实 checkpoint 提交和全部 rank 完成信号由应用提供。
@@ -172,11 +174,13 @@ unlink 本轮全部目标（包括 advisory stat 声称不存在的目标）
 
 Unlink `NotFound` 是幂等缺失，不是持久删除。已经缺失的 pending 文件仍需父目录屏障。其他错误上报并保留待办。回执停止重复删除／计数，但保留永久 tombstone；迟到 retain 不得复活路径。存活 extent 保护整个 pack。离线清理要求客户端停止、无共享 catalog／queue 标记、完整接受根及路径绑定追踪，以及新的未变化检查结果。
 
-多个 collector 可以重叠执行：unlink 幂等，各自完成自己目标的父目录屏障。回执不能包含本轮快照之后加入的目标。失败后持久 pending 留给后续调用处理。底层 `LockedCatalog::collect` 兼容 API 仍持有外层锁；同一个 coordinator 自身的调用也仍然串行。
+多个 collector 可以重叠执行：unlink 幂等，各自完成自己目标的父目录屏障。回执不能包含本轮快照之后加入的目标。失败后持久 pending 留给后续调用处理。底层 `LockedCatalog::collect` 兼容 API 仍持有外层锁。Python coordinator 的 GC 调用彼此串行，但在根退休和 tombstone 准备完成后释放两层队列锁；物理删除期间其他队列调用可以继续。回执阶段重新获取新鲜 catalog，只使用已捕获的计划。
 
 <a id="g4"></a>
 
 **G4 — Writer 退休与进展。** 每次 writer 修改持有准确 incarnation 的 gate 并检查持久 fence。产生效果前先登记操作身份、准备 owner 和依赖。退休获取相同 gate，持久化 fence，排空旧 I/O，对账已登记操作，然后释放准备 owner、记录结算、seal 预留文件、持久化退休回执。Recover 在释放前认证完整结果并 staging；abandon 不声称结果可读。重试可能重复任意已生效步骤。PID、年龄和超时都不能证明退休安全。
+
+显式 `discard_staging=True` 在上述退休完成后，以独立 catalog 事务释放该 writer 已登记结果的准确 staging owner，不递归释放依赖 writer 的 staging。调用者必须先停止相关 reader，并以独立持久 owner 保留仍需使用的结果；此时返回引用不受 staging 保护。错误后的重试仍须完成退休后再释放，其他 owner 保持不变。`WriterRetirement` 模型覆盖到退休回执；后续显式放弃沿用 owner 释放规则，由实际回归检查接口组合。
 
 Owner 持续存在或错误反复发生时，安全性仍须成立。最终回收只针对 sealed 且**永久无主**的对象，还要求持续调用 GC、锁／I/O 返回、故障最终稳定及公平调度。这不提供延迟上限，也不意味着存在自动后台回收器。
 

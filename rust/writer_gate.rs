@@ -536,6 +536,13 @@ impl Registry {
             .cloned()
             .collect()
     }
+
+    pub(crate) fn described_publications(&self) -> impl Iterator<Item = &Value> {
+        self.operations
+            .iter()
+            .filter_map(|op| op.results.as_ref())
+            .flat_map(|results| results.roots.iter().chain(results.intermediates.iter()))
+    }
 }
 
 #[cfg(test)]

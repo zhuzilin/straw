@@ -114,6 +114,8 @@ class SharedFilesystemStore(_RecordReader):
     max_buffer_bytes controls temporary copy memory, never logical record size.
     """
 
+    supports_writer_staging_discard = True
+
     def __init__(
         self,
         root,
@@ -215,14 +217,18 @@ class SharedFilesystemStore(_RecordReader):
         """Persistent incarnation used to explicitly retire this writer."""
         return self._native.writer_id()
 
-    def retire_writer(self, writer_id, *, policy="recover"):
+    def retire_writer(self, writer_id, *, policy="recover", discard_staging=False):
         """Fence an exact incarnation and reconcile its unfinished publications.
 
         A busy writer raises WriterBusy. Recovery returns staged results;
         explicit abandonment preserves existing queue, reader and staging roots.
         The same writer cannot resume after retirement. Create a fresh writer.
+        discard_staging=True explicitly relinquishes that writer's registered
+        transfer publications after retirement. The supervisor must first stop
+        its readers and adopt accepted results. Other durable owners survive;
+        returned references are not protected by staging in this mode.
         """
-        values = json.loads(self._native.retire_writer(writer_id, policy, self._fault))
+        values = json.loads(self._native.retire_writer(writer_id, policy, self._fault, discard_staging))
         return [
             RecordSetRef.from_dict(value) if "manifest" in value else RecordRef.from_dict(value) for value in values
         ]
@@ -276,6 +282,15 @@ class SharedFilesystemStore(_RecordReader):
     def collect_garbage(self):
         """Reclaim unowned sealed packs; retry deletions without a durable receipt."""
         return self._storage("collect")
+
+    def retention_summary(self):
+        """Report owner/pack metadata with bounded examples and no payload reads.
+
+        Category pack counts can overlap and must not be added together.
+        Open writers and retained ownership require lifecycle confirmation;
+        elapsed file age alone does not authorize reclamation.
+        """
+        return self._storage("retention_summary")
 
     def _inputs(self, records):
         metadata, payloads = [], []

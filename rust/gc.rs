@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "gc_plan.rs"]
 mod collection;
+pub(crate) use collection::Plan as CollectionPlan;
 
 fn catalog_append_error(error: crate::catalog_append::Error<Error, Error>) -> Error {
     match error {
@@ -648,6 +649,10 @@ impl LockedCatalog<'_> {
 
     pub fn collect(&mut self, config: &Config, fault: &mut Fault<'_>) -> Result<Value> {
         self.catalog.collect(config, fault)
+    }
+    #[cfg(feature = "python")]
+    pub(crate) fn retention_summary(&self) -> Value {
+        self.catalog.retention_summary()
     }
     #[cfg(test)]
     pub(crate) fn collect_queue(
@@ -1480,6 +1485,46 @@ impl Catalog {
         json!({"reclaimed_files":result.statistics.files,"reclaimed_bytes":result.statistics.bytes,"owners":self.log.indexes().owners.len(),
             "open_packs":self.log.indexes().packs.iter().filter(|(p,s)| !**s && !self.log.indexes().deleted.contains(*p)).count(),
             "retained_packs":result.retained,"tombstones":self.log.indexes().deleted.len()})
+    }
+
+    /// Metadata diagnostics with bounded examples; never reads payload files.
+    #[cfg(feature = "python")]
+    pub(crate) fn retention_summary(&self) -> Value {
+        let indexes = self.log.indexes();
+        let live = indexes.roots();
+        let mut categories =
+            std::collections::BTreeMap::<String, (usize, HashSet<String>, Vec<Value>)>::new();
+        for (owner, paths) in &indexes.owners {
+            let kind = owner.split(':').next().unwrap_or(owner).to_owned();
+            let entry = categories.entry(kind).or_default();
+            entry.0 += 1;
+            entry.1.extend(paths.iter().cloned());
+            if entry.2.len() < 4 {
+                entry.2.push(json!({"owner":owner,"packs":paths.len(),"pack_examples":paths.iter().take(3).collect::<Vec<_>>()}));
+            }
+        }
+        let categories = categories
+            .into_iter()
+            .map(|(kind, (owners, packs, examples))| {
+                (
+                    kind,
+                    json!({"owners":owners,"retained_packs":packs.len(),"examples":examples}),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        let mut open = std::collections::BTreeMap::<String, usize>::new();
+        for (path, sealed) in &indexes.packs {
+            if !sealed && !indexes.deleted.contains(path) {
+                let writer = path.split('/').nth(2).unwrap_or("unknown").to_owned();
+                *open.entry(writer).or_default() += 1;
+            }
+        }
+        json!({"owners":indexes.owners.len(),"retained_packs":live.len(),
+            "unowned_sealed_packs":indexes.candidates(&live).len(),
+            "pending_deletions":indexes.pending_deletions.len(),"tombstones":indexes.deleted.len(),
+            "open_packs":open.values().sum::<usize>(),"open_writers":open.len(),
+            "open_writer_examples":open.into_iter().take(64).collect::<std::collections::BTreeMap<_,_>>(),
+            "categories":categories})
     }
 
     #[cfg(test)]

@@ -2,6 +2,20 @@
 
 [English](CHANGELOG.md)
 
+## 0.1.8
+
+### 受监督的 worker 与回收
+
+- 新增 `Coordinator(..., lease_seconds=None)`，由外部监督器管理 worker 存活性。租约不会随时间自动过期，仍执行 attempt／epoch fencing 和显式 worker 退休；默认仍为 300 秒，恢复时必须沿用队列原有的 lease 配置。
+- GC 持久化根退休和 tombstone 后，释放 Python 与原生 coordinator 锁，使 heartbeat、acquire 和 complete 可以与物理删除、目录同步并行。同一 coordinator 的 GC 调用仍串行；返回队列锁等待、准备和锁外回收的独立耗时。
+- 新增显式选项 `retire_writer(..., discard_staging=True)`，在退休、封口完成后，仅释放该 writer 已登记的 transfer staging。保留独立的 queue、checkpoint、reader 和其他 writer owner；支持退休结果不确定后的重试。
+- 新增 `retention_summary()`，报告 owner 类别、受保留／可回收 pack、待完成删除和未封口 writer，限制示例数量且不读取 payload。不同类别的 pack 计数可能重叠。
+
+### 兼容与限制
+
+- WAL 和 packed-record 格式不变。新的 lease 与 staging 选项需要 0.1.8；默认仍使用定时租约并保留 staging。受监督模式要求外部故障探测，并在退休前确认 worker 已退出。放弃 staging 前须停止相关 reader，以独立持久 owner 保留已接受结果；返回引用不再受 staging 保护。
+- 模型沿用既有的过期、owner 释放与删除计划抽象；实际回归覆盖受监督 fencing、GC 期间的队列并发调用和退休／staging 重试，不据此承诺共享文件系统延迟上限或自动故障探测。
+
 ## 0.1.7
 
 ### 批量读取与校验

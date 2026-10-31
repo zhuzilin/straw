@@ -559,14 +559,12 @@ impl Config {
     ) -> Result<Option<T>> {
         self.with_catalog(|catalog| catalog.transaction(self, call))
     }
-    pub(crate) fn collect_queue(
+    pub(crate) fn plan_queue_collection(
         &self,
         prepared: crate::queue_gc::Prepared<'_>,
         fault: &mut Fault<'_>,
-    ) -> Result<Option<Value>> {
-        self.catalog(|catalog| catalog.plan_collection(self, Some(prepared), fault))?
-            .map(|plan| plan.execute(self, fault))
-            .transpose()
+    ) -> Result<Option<crate::gc::CollectionPlan>> {
+        self.catalog(|catalog| catalog.plan_collection(self, Some(prepared), fault))
     }
     /// Collect with the physical deletion and directory barriers outside the
     /// pool-wide catalog lock. Durable tombstones fence every selected name.

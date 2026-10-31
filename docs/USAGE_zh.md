@@ -272,3 +272,19 @@ receipt = peer.publication_receipt(
 Rollout 的路由／分数采集必须完整、一致后才能发布 continuation，不能仅以 token 生成结束为准。所有必要消费者完成后才确认原始输出，全部训练 rank 读完后才确认 ready batch。应用监督进程应锁存并传播后台 GC 失败、停止接收新任务、保留不确定存储，并对远端在途工作实施 fencing。
 
 联合 checkpoint 的提交与回退遵循 [C4](DESIGN_zh.md#c4)：包含模型／优化器／RNG 和匹配队列视图，保留 pending／buffered／prefetched 依赖及 post-checkpoint replay owner；不能只用 latest 标记或队列确认代替。重启 API 见[恢复说明](#重启后分别续上什么)。应用集成测试应覆盖真实 schema、中断续跑、共享张量、多 reader 完成信号与整任务恢复。
+
+### 由外部监督器管理的 worker
+
+`Coordinator(..., lease_seconds=None)` 显式关闭墙钟租约过期，仍保留 attempt/epoch fencing。
+只有外部监督器负责故障探测、确认旧进程退出并调用 `retire_worker` 时才使用此模式；
+默认仍为 300 秒。已有队列恢复时不能改变该配置。
+队列 GC 的持久化根/墓碑准备仍串行，物理删除和目录同步在队列锁外执行。
+`collect_garbage()` 返回 `queue_lock_wait_seconds`、`queue_prepare_seconds` 和 `detached_collection_seconds`。
+
+监督器确认 writer 的读写进程已退出、已接受结果由队列或其他 durable owner 接管后，
+可调用 `retire_writer(writer_id, policy="abandon", discard_staging=True)`：
+先完整退役、封口，再放弃这个 writer 已登记的 transfer staging；默认不放弃。
+这不会释放队列、checkpoint、reader 或其他 writer 的 staging。
+该模式返回的引用没有 staging 保护，不应当作待恢复的裸引用读取。
+`retention_summary()` 提供 owner 类别和未封口 pack 的元数据摘要，限制示例数量且不读取 tensor payload。
+不同类别的 pack 计数可能重叠，不能直接相加。

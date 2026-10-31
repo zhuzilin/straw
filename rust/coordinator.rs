@@ -78,7 +78,7 @@ pub struct Coordinator {
     owners: HashMap<String, String>,
     queue_id: String,
     storage_prefix: String,
-    lease_seconds: f64,
+    lease_seconds: Option<f64>,
     sealed: bool,
     draining: bool,
     storage_failed: bool,
@@ -391,8 +391,18 @@ impl Coordinator {
             .as_str()
             .unwrap_or("rollout")
             .to_string();
-        let lease_seconds = options["lease_seconds"].as_f64().unwrap_or(300.);
-        if lease_seconds <= 0. || queue_id.is_empty() {
+        // Null explicitly delegates failure detection to a process supervisor.
+        // Attempt/epoch fencing and reader lifetime checks still apply.
+        let lease_seconds = match options.get("lease_seconds") {
+            None => Some(300.),
+            Some(Value::Null) => None,
+            Some(value) => Some(value.as_f64().ok_or_else(|| {
+                Error::new("ValueError", "Lease duration must be a number or null")
+            })?),
+        };
+        if lease_seconds.is_some_and(|seconds| !seconds.is_finite() || seconds <= 0.)
+            || queue_id.is_empty()
+        {
             return fail("ValueError", "Invalid lease duration/queue ID");
         }
         let defaults = json!({"pending_tasks":10000,"inflight_tasks":256,"control_tasks":1,"accepted_records":100000,"accepted_bytes":68719476736u64,"accepted_tokens":100000000,"ready_bytes":68719476736u64,"max_result_bytes":4294967296u64,"max_result_tokens":100000000,"metadata_bytes":262144});
@@ -686,7 +696,7 @@ impl Coordinator {
             self.count("stale_attempts");
             return fail("StaleAttempt", "Lease is not current authorization");
         }
-        if self.deadlines.get(id).copied().unwrap_or(0.) <= now {
+        if self.lease_seconds.is_some() && self.deadlines.get(id).copied().unwrap_or(0.) <= now {
             return fail("LeaseExpired", "Lease expired");
         };
         Ok(task.clone())
@@ -1018,9 +1028,11 @@ impl Coordinator {
                     fault,
                     Some(graph),
                 )?;
-                for lease in leases {
-                    self.deadlines
-                        .insert(field(&lease, "task_id")?.into(), now + self.lease_seconds);
+                if let Some(seconds) = self.lease_seconds {
+                    for lease in leases {
+                        self.deadlines
+                            .insert(field(&lease, "task_id")?.into(), now + seconds);
+                    }
                 }
                 Ok(json!({"status":"acquired","assignments":assignments}))
             }
@@ -1126,8 +1138,10 @@ impl Coordinator {
                 for lease in leases {
                     match self.valid_lease(lease, now) {
                         Ok(_) => {
-                            self.deadlines
-                                .insert(field(lease, "task_id")?.into(), now + self.lease_seconds);
+                            if let Some(seconds) = self.lease_seconds {
+                                self.deadlines
+                                    .insert(field(lease, "task_id")?.into(), now + seconds);
+                            }
                             results.push(json!("extended"));
                         }
                         Err(e) if ["StaleAttempt", "LeaseExpired"].contains(&e.kind.as_str()) => {
@@ -1587,6 +1601,26 @@ impl Coordinator {
             .map_err(root_error)
     }
     fn collect_garbage(&mut self, fault: &mut Fault<'_>) -> Result<Value> {
+        let plan = self.prepare_garbage_collection(fault)?;
+        plan.execute(&self.store.config, fault)
+    }
+    /// Only durable queue/root admission needs exclusive queue access. Once
+    /// tombstones are committed, physical deletion can run without this owner.
+    pub(crate) fn prepare_garbage_collection(
+        &mut self,
+        fault: &mut Fault<'_>,
+    ) -> Result<crate::gc::CollectionPlan> {
+        if !crate::queue_application::permitted(
+            &self.journal,
+            self.journal.closed(),
+            "collect_garbage",
+        ) {
+            return fail(
+                "UnsafeRecovery",
+                "Coordinator unavailable; stop owner and recover",
+            );
+        }
+        self.finish_consumption(fault)?;
         if !self.store.config.gc_enabled()? {
             return fail("ValueError", "Online GC is not enabled");
         }
@@ -1610,7 +1644,7 @@ impl Coordinator {
             .map_err(gc_prepare_error)?;
         self.store
             .config
-            .collect_queue(prepared, fault)?
+            .plan_queue_collection(prepared, fault)?
             .ok_or_else(|| Error::new("ValueError", "Online GC is not enabled"))
     }
     pub fn close(&mut self) {

@@ -463,3 +463,22 @@ matching queue view, pending/buffered/prefetched dependencies and post-checkpoin
 replay owners. A latest marker or queue acknowledgement cannot replace it. See
 [restart APIs](#what-resumes-after-a-restart). Application tests cover real schemas,
 abort/resume, shared tensors, multiple-reader completion and whole-job recovery.
+
+### Externally supervised workers
+
+`Coordinator(..., lease_seconds=None)` delegates liveness to an external supervisor;
+attempt and epoch fences remain enforced. The supervisor must detect failures,
+confirm the old process has exited, and call `retire_worker`. The default remains
+300 seconds, and recovery cannot change this queue identity setting.
+Queue GC serializes root retirement and durable tombstones, then releases queue
+locks before deleting files and syncing directories. Its result includes
+`queue_lock_wait_seconds`, `queue_prepare_seconds`, and `detached_collection_seconds`.
+
+After readers and writers have exited and accepted results have durable owners,
+`retire_writer(writer_id, policy="abandon", discard_staging=True)` also relinquishes
+that writer's registered transfer staging after retirement and sealing. This is
+opt-in; other queue, checkpoint, reader, and writer owners are preserved. Returned
+references have no staging protection in this mode and are not recovery handles.
+`retention_summary()` reports owner categories and open packs with bounded
+examples, without reading tensor payloads. Category pack counts can overlap and
+must not be added together.

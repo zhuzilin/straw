@@ -174,16 +174,17 @@
     "ENV-CLOCK-ABSTRACT": {
       "layer": "coordinator/clock",
       "status": "partial_model",
-      "statement": "Lease expiry is a Boolean nondeterministic event; numeric clocks, drift, queueing and clock pathologies are not modeled.",
+      "statement": "Lease expiry is a Boolean nondeterministic event; numeric clocks, drift, queueing and clock pathologies are not modeled. Externally supervised leases select executions without clock expiry; their failure detector is a caller obligation.",
       "sources": [
         "verification/protocol/tla/EnvironmentClock.tla"
       ],
       "evidence": [
-        "tests/test_filesystem_queue.py"
+        "tests/test_filesystem_queue.py",
+        "tests/test_supervised_leases.py"
       ],
       "review": {
         "provided_by": "The model supplies nondeterministic Boolean expiry; deployment clocks and lease adapters supply actual observations.",
-        "implementation_obligation": "Check current lease identity and expiry at the specified authorization point.",
+        "implementation_obligation": "Check current task/attempt/epoch identity and configured expiry at the authorization point. Disable only clock expiry in supervised mode, preserve the lease mode across recovery, and require external confirmation of worker exit before retirement releases reader roots.",
         "unproved": "Numeric clock drift, clock jumps, delayed RPC queues and their correspondence to Boolean expiry are not modeled."
       }
     },

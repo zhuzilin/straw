@@ -675,6 +675,7 @@ impl NativeStore {
                 return Ok(serde_json::to_string(&self.config.collect_garbage(fault)?)?);
             }
             let result = self.config.catalog(|c| match method {
+                "retention_summary" => Ok(c.retention_summary()),
                 "retain" => {
                     c.retain(
                         &self.config,
@@ -706,12 +707,14 @@ impl NativeStore {
         py.allow_threads(|| Ok(self.writer_access()?.writer_id().to_owned()))
             .map_err(|e| exception(py, e))
     }
+    #[pyo3(signature = (writer_id, policy, fault, discard_staging=false))]
     fn retire_writer(
         &self,
         py: Python<'_>,
         writer_id: &str,
         policy: &str,
         fault: Py<PyAny>,
+        discard_staging: bool,
     ) -> PyResult<String> {
         self.check_writer_process()?;
         let policy = match policy {
@@ -729,7 +732,12 @@ impl NativeStore {
         };
         run(py, &fault, |fault| {
             Ok(serde_json::to_string(
-                &self.config.retire_writer(writer_id, policy, fault)?,
+                &self.config.retire_writer_with_staging(
+                    writer_id,
+                    policy,
+                    discard_staging,
+                    fault,
+                )?,
             )?)
         })
     }
@@ -755,6 +763,23 @@ impl NativeStore {
         self.check_writer_process()?;
         py.allow_threads(|| self.writer_access()?.close())
             .map_err(|e| exception(py, e))
+    }
+}
+#[pyclass]
+struct NativeQueueCollection {
+    config: Config,
+    plan: Mutex<Option<crate::gc::CollectionPlan>>,
+}
+#[pymethods]
+impl NativeQueueCollection {
+    fn execute(&self, py: Python<'_>, fault: Py<PyAny>) -> PyResult<String> {
+        run(py, &fault, |f| {
+            let plan =
+                self.plan.lock().unwrap().take().ok_or_else(|| {
+                    Error::new("ValueError", "Collection plan was already executed")
+                })?;
+            Ok(serde_json::to_string(&plan.execute(&self.config, f)?)?)
+        })
     }
 }
 #[pyclass]
@@ -808,6 +833,20 @@ impl NativeCoordinator {
     }
     fn diagnostics(&self, py: Python<'_>) -> String {
         py.allow_threads(||{let q=self.owner.lock().unwrap();json!({"path":q.journal.path,"sequence":q.journal.sequence,"poisoned":q.journal.poisoned,"closed":q.journal.closed(),"recovery_seconds":q.recovery_seconds}).to_string()})
+    }
+    fn prepare_garbage_collection(
+        &self,
+        py: Python<'_>,
+        fault: Py<PyAny>,
+    ) -> PyResult<NativeQueueCollection> {
+        run(py, &fault, |f| {
+            let mut owner = self.owner.lock().unwrap();
+            let plan = owner.prepare_garbage_collection(f)?;
+            Ok(NativeQueueCollection {
+                config: owner.store.config.clone(),
+                plan: Mutex::new(Some(plan)),
+            })
+        })
     }
     fn close(&self, py: Python<'_>) {
         py.allow_threads(|| self.owner.lock().unwrap().close());

@@ -109,6 +109,9 @@ payload may already have been collected. Conflicting content is an error. A new
 request must pass current task/attempt/epoch and expiry checks. Recovery revokes
 old work authority but preserves outstanding reader roots. External fencing must
 exclude concurrent coordinators; an `exclusive_owner` string is not enforcement.
+With `lease_seconds=None`, time does not expire a lease: an external supervisor
+must detect failure and confirm process exit before `retire_worker`. Attempt and
+epoch checks remain mandatory, and recovery must preserve the lease mode.
 
 <a id="c4"></a>
 
@@ -272,8 +275,11 @@ tombstone; late retain cannot revive that path. Live extents protect whole packs
 Collectors may overlap: unlink is idempotent, and every collector completes its
 own parent barriers. Never include targets added after this attempt's snapshot
 in its receipt. A failed attempt leaves durable pending work for a later call.
-The lower `LockedCatalog::collect` compatibility API retains its enclosing lock;
-one coordinator's own calls also remain serialized.
+The lower `LockedCatalog::collect` compatibility API retains its enclosing lock.
+Python coordinator GC calls serialize with each other, but release both queue
+locks after root retirement and tombstone preparation. Other queue calls may
+proceed during physical deletion; receipt completion refreshes the catalog and
+uses only the captured plan.
 Offline cleanup requires stopped clients, no shared catalog/queue markers, a
 complete accepted-root/path-binding trace and a fresh unchanged inspection.
 
@@ -287,6 +293,15 @@ then releases preparation owners, records settlement, seals reservations and
 persists the retirement receipt. Recover authenticates complete results and stages
 them before release; abandon makes no readable-result claim. A retry may repeat
 any already-effective step. PID, age and timeout never establish safe retirement.
+
+Explicit `discard_staging=True` releases the exact staging owners of that
+writer's registered results in a separate catalog transaction after retirement.
+It does not recursively release dependency writers' staging. The caller must
+first stop relevant readers and independently retain results still needed;
+returned references have no staging protection. A retry must finish retirement
+before releasing staging again and must preserve other owners. `WriterRetirement`
+models through the retirement receipt; subsequent explicit abandonment uses the
+owner-release rules, with concrete regressions checking the API composition.
 
 Safety holds while owners remain and errors recur. Eventual reclamation concerns
 sealed **permanently unowned** objects and additionally requires continued GC calls,

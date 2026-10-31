@@ -2,6 +2,40 @@
 
 [中文版](CHANGELOG_zh.md)
 
+## 0.1.8
+
+### Supervised workers and reclamation
+
+- Add `Coordinator(..., lease_seconds=None)` for externally supervised workers.
+  Leases do not expire with elapsed time; attempt/epoch fencing and explicit
+  worker retirement remain enforced. The default is still 300 seconds, and
+  recovery requires the queue's original lease configuration.
+- Release both Python and native coordinator locks after GC commits root
+  retirement and tombstones, allowing heartbeats, acquisitions and completions
+  during physical deletion and directory synchronization. GC calls on the same
+  coordinator remain serialized. Return separate queue-lock wait, preparation
+  and detached-collection timings.
+- Add opt-in `retire_writer(..., discard_staging=True)` to release only that
+  writer's registered transfer staging after retirement and sealing. Preserve
+  independent queue, checkpoint, reader and other writer owners. Retrying after
+  an uncertain retirement remains supported.
+- Add `retention_summary()` for owner categories, retained and reclaimable
+  packs, pending deletions and open writers, with bounded examples and no
+  payload reads. Category pack counts can overlap.
+
+### Compatibility and limits
+
+- WAL and packed-record formats remain unchanged. The new lease and staging
+  options require 0.1.8; existing timed leases and staging retention remain the
+  defaults. Supervised mode requires external failure detection and confirmation
+  that a worker has exited before retirement. Before discarding staging, stop
+  its readers and preserve accepted results through independent durable owners;
+  returned references no longer have staging protection.
+- Models retain their existing expiration, owner-release and deletion-plan
+  abstractions. Concrete regressions cover supervised fencing, concurrent queue
+  calls during GC and retirement/staging retries; they do not establish a
+  shared-filesystem latency bound or automatic failure detection.
+
 ## 0.1.7
 
 ### Batched reads and validation

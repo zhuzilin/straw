@@ -5,7 +5,8 @@ from threading import Event
 
 import pytest
 
-from straw import Record, SharedFilesystemStore
+from straw import Record, SharedFilesystemStore, TaskSpec
+from straw.coordinator import Coordinator
 from straw.errors import InvalidReference, StorageUnavailable
 
 
@@ -51,6 +52,50 @@ def test_gc_physical_io_allows_peer_publication_and_rejects_late_retain(tmp_path
             finally:
                 resume.set()
             assert collecting.result(timeout=5)["reclaimed_files"] == 1
+
+
+def test_queue_gc_releases_both_queue_locks_during_physical_io(tmp_path):
+    with store(tmp_path) as writer, store(tmp_path) as collector:
+        dead = garbage(writer, "dead")
+        with Coordinator(collector, exclusive_owner="test supervisor") as queue:
+            queue.submit_tasks("inputs", [TaskSpec("first"), TaskSpec("second")])
+            first = queue.acquire("worker").assignments[0].lease
+            reached, resume = Event(), Event()
+            pause_gc(collector, reached, resume)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                collecting = executor.submit(queue.collect_garbage)
+                try:
+                    assert reached.wait(5)
+
+                    def use_queue():
+                        assert queue.heartbeat([first]) == ["extended"]
+                        second = queue.acquire("peer").assignments[0].lease
+                        result = writer.publish(
+                            [
+                                Record(
+                                    "result",
+                                    b"accepted",
+                                    metadata={
+                                        "task_id": second.task_id,
+                                        "attempt_id": second.attempt_id,
+                                    },
+                                )
+                            ],
+                            submission_id="result",
+                        )
+                        return queue.complete_task(
+                            second, submission_id="accepted", result_ref=result, result_digest=result.digest
+                        )
+
+                    receipt = executor.submit(use_queue).result(timeout=5)
+                    assert receipt.task_id == "second"
+                    with pytest.raises(InvalidReference, match="reclaimed"):
+                        writer.retain("late", dead)
+                finally:
+                    resume.set()
+                result = collecting.result(timeout=5)
+                assert result["reclaimed_files"] == 1
+                assert result["queue_prepare_seconds"] >= 0
 
 
 @pytest.mark.parametrize("new_pending", [False, True])

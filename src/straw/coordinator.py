@@ -30,6 +30,8 @@ class _JournalView:
 
 
 class Coordinator:
+    supports_supervised_leases = True
+
     def __init__(
         self,
         store,
@@ -46,6 +48,7 @@ class Coordinator:
         self.limits = limits or Limits()
         self.lease_seconds, self.clock = lease_seconds, clock
         self._call_lock = threading.RLock()
+        self._gc_lock = threading.Lock()
         self._validation_context = threading.local()
         self._cpu_started = time.process_time()
         options = dict(
@@ -272,7 +275,27 @@ class Coordinator:
         raw results. Its finished_batches acknowledge training reads on all ranks.
         Other queues and explicit storage owners independently retain their roots.
         """
-        return self._call("collect_garbage", {})
+        # Only GC passes serialize with each other. The queue lock protects
+        # root retirement and durable tombstones, never physical filesystem I/O.
+        with self._gc_lock:
+            started = time.monotonic()
+            try:
+                with self._call_lock:
+                    acquired = time.monotonic()
+                    plan = self._native.prepare_garbage_collection(self.store._fault)
+                prepared = time.monotonic()
+                result = json.loads(plan.execute(self.store._fault))
+            except BaseException:
+                scope = getattr(self._validation_context, "scope", None)
+                if scope is not None:
+                    scope.close()
+                raise
+            result.update(
+                queue_lock_wait_seconds=acquired - started,
+                queue_prepare_seconds=prepared - acquired,
+                detached_collection_seconds=time.monotonic() - prepared,
+            )
+            return result
 
     def snapshot(self):
         result = self._call("snapshot", locals())

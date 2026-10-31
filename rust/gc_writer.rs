@@ -391,6 +391,18 @@ impl Config {
         policy: RetirementPolicy,
         fault: &mut Fault<'_>,
     ) -> Result<Vec<Value>> {
+        self.retire_writer_with_staging(writer, policy, false, fault)
+    }
+
+    /// Explicitly relinquish this writer's transfer staging only after its
+    /// retirement has committed. Queue/checkpoint/reader owners are untouched.
+    pub(crate) fn retire_writer_with_staging(
+        &self,
+        writer: &str,
+        policy: RetirementPolicy,
+        discard_staging: bool,
+        fault: &mut Fault<'_>,
+    ) -> Result<Vec<Value>> {
         let mut permit = Permit::retire(&self.root, &self.run_id, writer)?;
         let registry = permit.registry(None, fault)?;
         let recovered = registry.retired_results();
@@ -406,6 +418,22 @@ impl Config {
             pending,
         };
         crate::writer_retirement::execute(&mut retirement)?;
+        if discard_staging {
+            // Use exact durable result descriptors, not file age or path
+            // overlap. Do not recursively consume another writer's staging.
+            let owners = retirement
+                .registry
+                .described_publications()
+                .map(Catalog::staged)
+                .collect::<Result<BTreeSet<_>>>()?;
+            retirement.config.catalog(|c| {
+                let held = owners
+                    .into_iter()
+                    .filter(|owner| c.catalog.log.indexes().owners.contains_key(owner))
+                    .collect::<Vec<_>>();
+                c.release(retirement.config, &held, retirement.fault)
+            })?;
+        }
         Ok(retirement.recovered)
     }
 }

@@ -68,6 +68,49 @@ def test_idle_writer_is_fenced_and_its_acknowledged_roots_survive(tmp_path):
     assert peer.collect_garbage()["reclaimed_files"] == 1
 
 
+@pytest.mark.parametrize("policy", ["recover", "abandon"])
+@pytest.mark.parametrize("lost_reply", [None, "retirement", "staging"])
+def test_supervisor_discards_dead_writer_staging_without_releasing_other_owners(tmp_path, policy, lost_reply):
+    writer, peer = make(tmp_path, 0), make(tmp_path, 0)
+    other = peer.publish([Record("other", b"other")], submission_id="other")
+    accepted = writer.publish([Record("accepted", b"accepted")], submission_id="accepted")
+    abandoned = writer.publish([Record("abandoned", b"abandoned")], submission_id="abandoned", dependencies=(other,))
+    peer.retain("trainer-recovery:accepted", [accepted])
+    if lost_reply:
+        retired = False
+
+        def fail(at):
+            nonlocal retired
+            if at == "after_writer_retirement_receipt":
+                retired = True
+                if lost_reply == "retirement":
+                    raise OSError(errno.EIO, "lost retirement reply")
+            if retired and at == "after_storage_catalog_sync" and lost_reply == "staging":
+                raise OSError(errno.EIO, "lost staging release reply")
+
+        peer.backend.fault = fail
+        with pytest.raises(StorageUnavailable):
+            peer.retire_writer(writer.writer_id, policy=policy, discard_staging=True)
+        peer.backend.fault = lambda _: None
+    peer.retire_writer(writer.writer_id, policy=policy, discard_staging=True)
+    peer.retire_writer(writer.writer_id, policy=policy, discard_staging=True)
+    assert peer.collect_garbage()["reclaimed_files"] == 1
+    assert not (tmp_path / abandoned.manifest.segment.path).exists()
+    assert peer.read_record(peer.validate(accepted)[0]).payload == b"accepted"
+    assert peer.read_record(peer.validate(other)[0]).payload == b"other"
+    summary = peer.retention_summary()
+    assert summary["categories"]["staged"]["owners"] == 1
+    assert summary["categories"]["trainer-recovery"]["owners"] == 1
+    peer.release("trainer-recovery:accepted")
+    assert peer.collect_garbage()["reclaimed_files"] == 1
+
+
+def test_registered_empty_writer_can_be_retired(tmp_path):
+    writer, peer = make(tmp_path), make(tmp_path)
+    writer.seal()
+    assert peer.retire_writer(writer.writer_id, policy="abandon", discard_staging=True) == []
+
+
 @pytest.mark.parametrize(
     "phase",
     [
